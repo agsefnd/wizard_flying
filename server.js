@@ -1,162 +1,122 @@
+require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const DiscordStrategy = require('passport-discord').Strategy;
-const path = require('path');
-const { createClient } = require('@vercel/kv'); // Vercel KV
-
-// Inisialisasi Vercel KV Client
-const kv = createClient({
-    url: process.env.KV_REST_API_URL,
-    token: process.env.KV_REST_API_TOKEN,
-});
+const { kv } = require('@vercel/kv');
+const cors = require('cors');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
 
-// Discord OAuth2 Scopes
-const scopes = ['identify'];
+// === Middleware ===
+app.use(express.json());
+app.use(cors({
+    origin: process.env.FRONTEND_URL || "*",
+    credentials: true
+}));
 
-// Passport setup
-passport.serializeUser(function(user, done) {
-    done(null, user);
-});
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'supersecret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false }
+}));
 
-passport.deserializeUser(function(obj, done) {
-    done(null, obj);
-});
+app.use(passport.initialize());
+app.use(passport.session());
 
+// === Passport Discord Strategy ===
 passport.use(new DiscordStrategy({
     clientID: process.env.DISCORD_CLIENT_ID,
     clientSecret: process.env.DISCORD_CLIENT_SECRET,
-    callbackURL: process.env.REDIRECT_URI,
-    scope: scopes
-}, function(accessToken, refreshToken, profile, done) {
-    process.nextTick(function() {
-        return done(null, profile);
+    callbackURL: process.env.DISCORD_CALLBACK_URL,
+    scope: ['identify']
+}, (accessToken, refreshToken, profile, done) => {
+    return done(null, profile);
+}));
+
+passport.serializeUser((user, done) => {
+    done(null, user);
+});
+passport.deserializeUser((obj, done) => {
+    done(null, obj);
+});
+
+// === Routes ===
+app.get('/auth/discord', passport.authenticate('discord'));
+
+app.get('/auth/discord/callback',
+    passport.authenticate('discord', { failureRedirect: '/' }),
+    (req, res) => {
+        res.redirect(process.env.FRONTEND_URL || '/');
+    }
+);
+
+app.get('/auth/logout', (req, res) => {
+    req.logout(() => {
+        res.redirect('/');
     });
-}));
+});
 
-// Middleware
-app.use(session({
-    secret: 'mysecret',
-    resave: false,
-    saveUninitialized: false
-}));
-app.use(passport.initialize());
-app.use(passport.session());
-app.use(express.json());
-
-// Serve static files
-app.use(express.static(path.join(__dirname, 'public')));
-
-// ====================== LEADERBOARD ======================
-
-// GET leaderboard
+// Get leaderboard
 app.get('/api/leaderboard', async (req, res) => {
     try {
-        let leaderboardData = await kv.get('leaderboard');
+        let leaderboard = await kv.get('leaderboard');
 
-        // Pastikan hasil parse JSON
-        if (!leaderboardData) {
-            leaderboardData = [];
-        } else if (typeof leaderboardData === 'string') {
-            leaderboardData = JSON.parse(leaderboardData);
-        }
+        if (!leaderboard) leaderboard = [];
+        else if (typeof leaderboard === 'string') leaderboard = JSON.parse(leaderboard);
 
-        if (!Array.isArray(leaderboardData)) {
-            leaderboardData = [];
-            await kv.del('leaderboard');
-            console.warn('Leaderboard data corrupted, resetting.');
-        }
+        if (!Array.isArray(leaderboard)) leaderboard = [];
 
-        // Urutkan dari skor tertinggi → terendah
-        let sortedLeaderboard = leaderboardData.sort((a, b) => b.score - a.score);
-
-        // Jika frontend butuh limit (misal ?limit=10)
-        const limit = parseInt(req.query.limit) || sortedLeaderboard.length;
-        sortedLeaderboard = sortedLeaderboard.slice(0, limit);
-
-        res.json(sortedLeaderboard);
-    } catch (error) {
-        console.error('Failed to fetch leaderboard from KV:', error);
-        res.status(500).send('Error fetching leaderboard');
+        leaderboard.sort((a, b) => b.score - a.score);
+        res.json(leaderboard);
+    } catch (err) {
+        console.error('Error reading leaderboard:', err);
+        res.status(500).send('Error reading leaderboard');
     }
 });
 
-// POST leaderboard
+// Post score → hanya user login
 app.post('/api/leaderboard', async (req, res) => {
-    // Jika ingin terbuka untuk semua user → hapus check ini
     if (!req.isAuthenticated()) {
         return res.status(401).send('Unauthorized');
     }
 
-    const { userId, username, score } = req.body;
+    const { score } = req.body;
+    const userId = req.user.id;
+    const username = req.user.username;
 
-    if (!userId || !username || typeof score !== 'number') {
-        return res.status(400).send('Invalid data');
+    if (typeof score !== 'number') {
+        return res.status(400).send('Invalid score');
     }
 
     try {
-        let currentLeaderboard = await kv.get('leaderboard');
+        let leaderboard = await kv.get('leaderboard');
 
-        if (!currentLeaderboard) {
-            currentLeaderboard = [];
-        } else if (typeof currentLeaderboard === 'string') {
-            currentLeaderboard = JSON.parse(currentLeaderboard);
-        }
+        if (!leaderboard) leaderboard = [];
+        else if (typeof leaderboard === 'string') leaderboard = JSON.parse(leaderboard);
 
-        if (!Array.isArray(currentLeaderboard)) {
-            currentLeaderboard = [];
-            await kv.del('leaderboard');
-            console.warn('Leaderboard data corrupted, resetting.');
-        }
+        if (!Array.isArray(leaderboard)) leaderboard = [];
 
-        const existingEntryIndex = currentLeaderboard.findIndex(entry => entry.userId === userId);
-
-        if (existingEntryIndex !== -1) {
-            // update skor hanya jika lebih tinggi
-            if (score > currentLeaderboard[existingEntryIndex].score) {
-                currentLeaderboard[existingEntryIndex].score = score;
+        const idx = leaderboard.findIndex(e => e.userId === userId);
+        if (idx !== -1) {
+            if (score > leaderboard[idx].score) {
+                leaderboard[idx].score = score;
             }
         } else {
-            currentLeaderboard.push({ userId, username, score });
+            leaderboard.push({ userId, username, score });
         }
 
-        // simpan dalam bentuk JSON string
-        await kv.set('leaderboard', JSON.stringify(currentLeaderboard));
-
-        res.sendStatus(200);
-    } catch (error) {
-        console.error('Failed to save score to KV:', error);
+        await kv.set('leaderboard', JSON.stringify(leaderboard));
+        res.json({ success: true, leaderboard });
+    } catch (err) {
+        console.error('Error saving score:', err);
         res.status(500).send('Error saving score');
     }
 });
 
-// ====================== AUTH DISCORD ======================
-
-app.get('/login', passport.authenticate('discord'));
-
-app.get('/auth/discord/callback', passport.authenticate('discord', {
-    failureRedirect: '/'
-}), (req, res) => {
-    res.redirect('/');
-});
-
-app.get('/api/user', (req, res) => {
-    if (req.isAuthenticated()) {
-        res.json({ loggedIn: true, user: req.user });
-    } else {
-        res.json({ loggedIn: false });
-    }
-});
-
-// Serve halaman utama
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// ====================== START SERVER ======================
+// === Start server ===
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+    console.log(`🚀 Server running on http://localhost:${PORT}`);
 });
