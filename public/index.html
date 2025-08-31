@@ -236,6 +236,31 @@
             font-size: 12px;
             z-index: 100;
             display: none;
+            max-width: 500px;
+            max-height: 200px;
+            overflow: auto;
+        }
+
+        .login-status {
+            margin-top: 20px;
+            padding: 10px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            text-align: center;
+        }
+
+        .login-error {
+            color: #ff6b6b;
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(255, 0, 0, 0.1);
+            border-radius: 5px;
+        }
+
+        .retry-button {
+            padding: 8px 16px;
+            font-size: 0.9rem;
+            background: linear-gradient(to right, #4ecdc4, #44a08d);
         }
 
         @keyframes fadeOut {
@@ -280,8 +305,15 @@
             <h1>Flying Wizard</h1>
             <p class="instructions">Login to save your score and compete on the leaderboard!</p>
             <button id="login-button">Login with Discord</button>
-            <div class="instructions" id="login-status">
+            <div class="login-status" id="login-status">
                 Checking login status...
+            </div>
+            <div class="login-error" id="login-error" style="display: none;">
+                <!-- Error messages will be displayed here -->
+            </div>
+            <div id="manual-login-check" style="margin-top: 20px; display: none;">
+                <p class="instructions">If you just logged in but still see this screen:</p>
+                <button id="retry-login-check" class="retry-button">Retry Login Check</button>
             </div>
         </div>
 
@@ -325,6 +357,7 @@
         const startButton = document.getElementById('start-button');
         const restartButton = document.getElementById('restart-button');
         const loginButton = document.getElementById('login-button');
+        const retryLoginButton = document.getElementById('retry-login-check');
         const logoutButton = document.getElementById('logout-button');
         const scoreElement = document.getElementById('score');
         const highScoreElement = document.getElementById('high-score');
@@ -333,6 +366,8 @@
         const speedUpText = document.getElementById('speed-up-text');
         const sessionExpiredAlert = document.getElementById('session-expired-alert');
         const loginStatus = document.getElementById('login-status');
+        const loginError = document.getElementById('login-error');
+        const manualLoginCheck = document.getElementById('manual-login-check');
         const debugInfo = document.getElementById('debug-info');
         const backgroundMusic = document.getElementById('background-music');
         const userInfoElement = document.getElementById('user-info');
@@ -359,7 +394,7 @@
         function debugLog(message) {
             if (DEBUG_MODE) {
                 console.log(message);
-                debugInfo.innerHTML += message + '<br>';
+                debugInfo.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
                 debugInfo.scrollTop = debugInfo.scrollHeight;
             }
         }
@@ -654,7 +689,12 @@
         async function checkLoginStatus() {
             try {
                 loginStatus.textContent = 'Checking login status...';
-                const response = await fetch('/api/user');
+                loginError.style.display = 'none';
+                manualLoginCheck.style.display = 'none';
+                
+                const response = await fetch('/api/user?t=' + new Date().getTime(), {
+                    credentials: 'include' // Important for sending cookies
+                });
                 
                 if (!response.ok) {
                     throw new Error(`HTTP error! status: ${response.status}`);
@@ -684,9 +724,15 @@
                     loginStatus.textContent = 'Please login to play';
                     loginCheckAttempts++;
                     
+                    // Show manual retry option if we might be returning from OAuth
+                    const urlParams = new URLSearchParams(window.location.search);
+                    if (urlParams.has('code') || loginCheckAttempts > 1) {
+                        manualLoginCheck.style.display = 'block';
+                    }
+                    
                     // If we've tried too many times, show an error
                     if (loginCheckAttempts >= MAX_LOGIN_CHECKS) {
-                        loginStatus.textContent = 'Login check failed. Please refresh the page.';
+                        showLoginError('Login check failed. The server might be having issues. Please refresh the page.');
                     }
                 }
                 fetchAndDisplayLeaderboard();
@@ -699,18 +745,30 @@
                 loginStatus.textContent = 'Error checking login status';
                 loginCheckAttempts++;
                 
+                showLoginError('Connection error: ' + error.message);
+                
+                // Show manual retry option
+                manualLoginCheck.style.display = 'block';
+                
                 // If we've tried too many times, show an error
                 if (loginCheckAttempts >= MAX_LOGIN_CHECKS) {
-                    loginStatus.textContent = 'Server connection failed. Please refresh the page.';
+                    showLoginError('Server connection failed. Please refresh the page.');
                 }
                 
                 fetchAndDisplayLeaderboard();
             }
         }
 
+        function showLoginError(message) {
+            loginError.textContent = message;
+            loginError.style.display = 'block';
+        }
+
         async function checkSessionValidity() {
             try {
-                const response = await fetch('/api/user');
+                const response = await fetch('/api/user?t=' + new Date().getTime(), {
+                    credentials: 'include'
+                });
                 const data = await response.json();
                 return data.loggedIn;
             } catch (error) {
@@ -735,7 +793,8 @@
                         userId: loggedInUser.id,
                         username: loggedInUser.username,
                         score: score
-                    })
+                    }),
+                    credentials: 'include' // Important for sending cookies
                 });
 
                 if (response.ok) {
@@ -765,7 +824,7 @@
 
         async function fetchAndDisplayLeaderboard() {
             try {
-                const response = await fetch('/api/leaderboard');
+                const response = await fetch('/api/leaderboard?t=' + new Date().getTime());
                 const leaderboardData = await response.json();
                 leaderboardList.innerHTML = ''; // Clear existing list
                 
@@ -791,15 +850,21 @@
             
             if (code) {
                 debugLog('Returned from Discord OAuth with code');
-                // Remove the code from URL
-                window.history.replaceState({}, document.title, window.location.pathname);
+                // Remove the code from URL to prevent re-triggering
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, newUrl);
+                
+                // Show appropriate message
+                loginStatus.textContent = 'Completing login...';
+                
                 // Check login status after a short delay to allow server to process
-                setTimeout(() => checkLoginStatus(), 1000);
+                setTimeout(() => checkLoginStatus(), 1500);
             } else if (error) {
                 debugLog('OAuth error: ' + error);
-                loginStatus.textContent = 'Login failed: ' + error;
+                showLoginError('Login failed: ' + error);
                 // Remove the error from URL
-                window.history.replaceState({}, document.title, window.location.pathname);
+                const newUrl = window.location.pathname;
+                window.history.replaceState({}, document.title, newUrl);
             }
         }
 
@@ -807,6 +872,11 @@
         loginButton.addEventListener('click', () => {
             debugLog('Login button clicked');
             window.location.href = '/login';
+        });
+
+        retryLoginButton.addEventListener('click', () => {
+            debugLog('Retrying login check');
+            checkLoginStatus();
         });
 
         startButton.addEventListener('click', startGame);
