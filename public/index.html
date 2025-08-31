@@ -209,60 +209,6 @@
             z-index: 30;
         }
 
-        .session-expired-alert {
-            position: fixed;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255, 0, 0, 0.8);
-            color: white;
-            padding: 15px 25px;
-            border-radius: 10px;
-            z-index: 100;
-            display: none;
-            text-align: center;
-            backdrop-filter: blur(5px);
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-        }
-
-        .debug-info {
-            position: fixed;
-            bottom: 10px;
-            left: 10px;
-            background: rgba(0, 0, 0, 0.7);
-            color: #0f0;
-            padding: 10px;
-            border-radius: 5px;
-            font-size: 12px;
-            z-index: 100;
-            display: none;
-            max-width: 500px;
-            max-height: 200px;
-            overflow: auto;
-        }
-
-        .login-status {
-            margin-top: 20px;
-            padding: 10px;
-            background: rgba(255, 255, 255, 0.1);
-            border-radius: 10px;
-            text-align: center;
-        }
-
-        .login-error {
-            color: #ff6b6b;
-            margin-top: 10px;
-            padding: 10px;
-            background: rgba(255, 0, 0, 0.1);
-            border-radius: 5px;
-        }
-
-        .retry-button {
-            padding: 8px 16px;
-            font-size: 0.9rem;
-            background: linear-gradient(to right, #4ecdc4, #44a08d);
-        }
-
         @keyframes fadeOut {
             from {
                 opacity: 1;
@@ -286,7 +232,6 @@
             </div>
             <div class="user-info" id="user-info">
                 <span>Not Logged In</span>
-                <button id="logout-button" style="display: none; padding: 5px 10px; font-size: 0.8rem;">Logout</button>
             </div>
         </div>
         
@@ -297,24 +242,10 @@
 
         <div id="speed-up-text">SPEED UP!</div>
 
-        <div class="session-expired-alert" id="session-expired-alert">
-            Your session has expired. Please login again to save your score.
-        </div>
-
         <div class="login-screen" id="login-screen">
             <h1>Flying Wizard</h1>
             <p class="instructions">Login to save your score and compete on the leaderboard!</p>
             <button id="login-button">Login with Discord</button>
-            <div class="login-status" id="login-status">
-                Checking login status...
-            </div>
-            <div class="login-error" id="login-error" style="display: none;">
-                <!-- Error messages will be displayed here -->
-            </div>
-            <div id="manual-login-check" style="margin-top: 20px; display: none;">
-                <p class="instructions">If you just logged in but still see this screen:</p>
-                <button id="retry-login-check" class="retry-button">Retry Login Check</button>
-            </div>
         </div>
 
         <div class="start-screen" id="start-screen">
@@ -337,642 +268,474 @@
         <canvas id="game-canvas"></canvas>
     </div>
 
-    <div class="debug-info" id="debug-info"></div>
-
     <audio id="background-music" loop>
         <source src="efek.mp3" type="audio/mpeg">
         Your browser does not support the audio element.
     </audio>
 
     <script>
-    // Debug mode - set to true to see debug info
-    const DEBUG_MODE = true;
-    
-    // DOM Elements
-    const canvas = document.getElementById('game-canvas');
-    const ctx = canvas.getContext('2d');
-    const loginScreen = document.getElementById('login-screen');
-    const startScreen = document.getElementById('start-screen');
-    const gameOverScreen = document.getElementById('game-over-screen');
-    const startButton = document.getElementById('start-button');
-    const restartButton = document.getElementById('restart-button');
-    const loginButton = document.getElementById('login-button');
-    const retryLoginButton = document.getElementById('retry-login-check');
-    const scoreElement = document.getElementById('score');
-    const highScoreElement = document.getElementById('high-score');
-    const finalScoreElement = document.getElementById('final-score');
-    const finalHighScoreElement = document.getElementById('final-high-score');
-    const speedUpText = document.getElementById('speed-up-text');
-    const sessionExpiredAlert = document.getElementById('session-expired-alert');
-    const loginStatus = document.getElementById('login-status');
-    const loginError = document.getElementById('login-error');
-    const manualLoginCheck = document.getElementById('manual-login-check');
-    const debugInfo = document.getElementById('debug-info');
-    const backgroundMusic = document.getElementById('background-music');
-    const userInfoElement = document.getElementById('user-info');
-    const leaderboardContainer = document.getElementById('leaderboard-container');
-    const leaderboardList = document.getElementById('leaderboard-list');
+        // DOM Elements
+        const canvas = document.getElementById('game-canvas');
+        const ctx = canvas.getContext('2d');
+        const loginScreen = document.getElementById('login-screen');
+        const startScreen = document.getElementById('start-screen');
+        const gameOverScreen = document.getElementById('game-over-screen');
+        const startButton = document.getElementById('start-button');
+        const restartButton = document.getElementById('restart-button');
+        const loginButton = document.getElementById('login-button');
+        const scoreElement = document.getElementById('score');
+        const highScoreElement = document.getElementById('high-score');
+        const finalScoreElement = document.getElementById('final-score');
+        const finalHighScoreElement = document.getElementById('final-high-score');
+        const speedUpText = document.getElementById('speed-up-text');
+        const backgroundMusic = document.getElementById('background-music');
+        const userInfoElement = document.getElementById('user-info');
+        const leaderboardContainer = document.getElementById('leaderboard-container');
+        const leaderboardList = document.getElementById('leaderboard-list');
 
-    // Game variables
-    let gameRunning = false;
-    let score = 0;
-    let highScore = localStorage.getItem('highScore') || 0;
-    highScoreElement.textContent = highScore;
-    let frameCount = 0;
-    const wallDistance = 300;
-    let nextSpeedIncrease = 10;
-    let loggedInUser = null;
-    let loginCheckAttempts = 0;
-    const MAX_LOGIN_CHECKS = 10;
+        // Game variables
+        let gameRunning = false;
+        let score = 0;
+        let highScore = localStorage.getItem('highScore') || 0;
+        highScoreElement.textContent = highScore;
+        let frameCount = 0;
+        const wallDistance = 300;
+        let nextSpeedIncrease = 10;
+        let loggedInUser = null;
 
-    // Controls
-    let upPressed = false;
-    let downPressed = false;
+        // Controls
+        let upPressed = false;
+        let downPressed = false;
 
-    // Debug function
-    function debugLog(message) {
-        if (DEBUG_MODE) {
-            console.log(message);
-            debugInfo.innerHTML += new Date().toLocaleTimeString() + ': ' + message + '<br>';
-            debugInfo.scrollTop = debugInfo.scrollHeight;
-        }
-    }
+        // Character & Background Images
+        const mageImage = new Image();
+        mageImage.src = 'mage.png';
+        let isMageLoaded = false;
+        let wizardWidth = 50;
+        let wizardHeight = 50;
 
-    // Show debug info if in debug mode
-    if (DEBUG_MODE) {
-        debugInfo.style.display = 'block';
-        debugLog('Debug mode enabled');
-    }
+        const backgroundImage = new Image();
+        backgroundImage.src = 'island.png';
+        let isBackgroundLoaded = false;
+        let backgroundX = 0;
 
-    // Character & Background Images
-    const mageImage = new Image();
-    mageImage.src = 'mage.png';
-    let isMageLoaded = false;
-    let wizardWidth = 50;
-    let wizardHeight = 50;
+        mageImage.onload = () => {
+            isMageLoaded = true;
+            const ratio = mageImage.width / mageImage.height;
+            wizardWidth = 100;
+            wizardHeight = wizardWidth / ratio;
+            wizard.width = wizardWidth;
+            wizard.height = wizardHeight;
+            console.log("Image 'mage.png' loaded successfully.");
+            if (isBackgroundLoaded) checkLoginStatus();
+        };
 
-    const backgroundImage = new Image();
-    backgroundImage.src = 'island.png';
-    let isBackgroundLoaded = false;
-    let backgroundX = 0;
+        mageImage.onerror = () => {
+            console.error("Failed to load 'mage.png'. Using a placeholder.");
+            isMageLoaded = false;
+            wizard.width = 60;
+            wizard.height = 60;
+            if (isBackgroundLoaded) checkLoginStatus();
+        };
 
-    mageImage.onload = () => {
-        isMageLoaded = true;
-        const ratio = mageImage.width / mageImage.height;
-        wizardWidth = 100;
-        wizardHeight = wizardWidth / ratio;
-        wizard.width = wizardWidth;
-        wizard.height = wizardHeight;
-        debugLog("Image 'mage.png' loaded successfully.");
-        if (isBackgroundLoaded) checkLoginStatus();
-    };
+        backgroundImage.onload = () => {
+            isBackgroundLoaded = true;
+            console.log("Image 'island.png' loaded successfully.");
+            if (isMageLoaded) checkLoginStatus();
+        };
 
-    mageImage.onerror = () => {
-        debugLog("Failed to load 'mage.png'. Using a placeholder.");
-        isMageLoaded = false;
-        wizard.width = 60;
-        wizard.height = 60;
-        if (isBackgroundLoaded) checkLoginStatus();
-    };
+        backgroundImage.onerror = () => {
+            console.error("Failed to load 'island.png'. Using a red-black gradient background.");
+            isBackgroundLoaded = false;
+            if (isMageLoaded) checkLoginStatus();
+        };
 
-    backgroundImage.onload = () => {
-        isBackgroundLoaded = true;
-        debugLog("Image 'island.png' loaded successfully.");
-        if (isMageLoaded) checkLoginStatus();
-    };
+        // Wizard character
+        const wizard = {
+            x: 100,
+            y: canvas.height / 2,
+            width: wizardWidth,
+            height: wizardHeight,
+            speedY: 7,
 
-    backgroundImage.onerror = () => {
-        debugLog("Failed to load 'island.png'. Using a red-black gradient background.");
-        isBackgroundLoaded = false;
-        if (isMageLoaded) checkLoginStatus();
-    };
+            draw() {
+                const hoverOffset = Math.sin(frameCount * 0.1) * 5;
+                if (isMageLoaded) {
+                    ctx.drawImage(mageImage, this.x - this.width / 2, this.y - this.height / 2 + hoverOffset, this.width, this.height);
+                } else {
+                    ctx.fillStyle = '#9c27b0';
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y + hoverOffset, this.width / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#4a148c';
+                    ctx.beginPath();
+                    ctx.moveTo(this.x - this.width / 2, this.y + hoverOffset - 15);
+                    ctx.lineTo(this.x + this.width / 2, this.y + hoverOffset - 15);
+                    ctx.lineTo(this.x, this.y + hoverOffset - 40);
+                    ctx.closePath();
+                    ctx.fill();
+                }
 
-    // Wizard character
-    const wizard = {
-        x: 100,
-        y: canvas.height / 2,
-        width: wizardWidth,
-        height: wizardHeight,
-        speedY: 7,
-
-        draw() {
-            const hoverOffset = Math.sin(frameCount * 0.1) * 5;
-            if (isMageLoaded) {
-                ctx.drawImage(mageImage, this.x - this.width / 2, this.y - this.height / 2 + hoverOffset, this.width, this.height);
-            } else {
-                ctx.fillStyle = '#9c27b0';
+                ctx.save();
+                ctx.filter = 'blur(8px)';
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
                 ctx.beginPath();
-                ctx.arc(this.x, this.y + hoverOffset, this.width / 2, 0, Math.PI * 2);
+                ctx.arc(this.x, this.y + hoverOffset, this.width * 0.7, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.fillStyle = '#4a148c';
-                ctx.beginPath();
-                ctx.moveTo(this.x - this.width / 2, this.y + hoverOffset - 15);
-                ctx.lineTo(this.x + this.width / 2, this.y + hoverOffset - 15);
-                ctx.lineTo(this.x, this.y + hoverOffset - 40);
-                ctx.closePath();
-                ctx.fill();
+                ctx.restore();
+            },
+
+            update() {
+                if (upPressed) {
+                    this.y -= this.speedY;
+                }
+                if (downPressed) {
+                    this.y += this.speedY;
+                }
+
+                if (this.y < this.height / 2) {
+                    this.y = this.height / 2;
+                }
+                if (this.y > canvas.height - this.height / 2) {
+                    this.y = canvas.height - this.height / 2;
+                }
+            }
+        };
+
+        // Walls array
+        let walls = [];
+        let wallSpeed = 4;
+
+        // Wall class
+        class Wall {
+            constructor() {
+                this.width = 30;
+                this.x = canvas.width;
+                this.topHeight = Math.random() * (canvas.height / 2) + 50;
+                this.gap = 250; 
+                this.color = '#555';
+                this.passed = false;
+
+                this.initialY = this.topHeight;
+                this.offsetY = Math.random() * 100 + 50;
+                this.speedY = (Math.random() - 0.5) * 2;
             }
 
-            ctx.save();
-            ctx.filter = 'blur(8px)';
-            ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-            ctx.beginPath();
-            ctx.arc(this.x, this.y + hoverOffset, this.width * 0.7, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
-        },
+            draw() {
+                ctx.fillStyle = this.color;
+                ctx.fillRect(this.x, 0, this.width, this.topHeight);
+                const bottomY = this.topHeight + this.gap;
+                ctx.fillRect(this.x, bottomY, this.width, canvas.height - bottomY);
 
-        update() {
-            if (upPressed) {
-                this.y -= this.speedY;
-            }
-            if (downPressed) {
-                this.y += this.speedY;
+                ctx.fillStyle = '#333';
+                for (let i = 0; i < this.topHeight; i += 15) {
+                    ctx.fillRect(this.x, i, this.width, 5);
+                }
+                for (let i = bottomY; i < canvas.height; i += 15) {
+                    ctx.fillRect(this.x, i, this.width, 5);
+                }
             }
 
-            if (this.y < this.height / 2) {
-                this.y = this.height / 2;
-            }
-            if (this.y > canvas.height - this.height / 2) {
-                this.y = canvas.height - this.height / 2;
-            }
-        }
-    };
+            update() {
+                this.x -= wallSpeed;
+                this.topHeight = this.initialY + Math.sin(frameCount * this.speedY / 50) * this.offsetY;
 
-    // Walls array
-    let walls = [];
-    let wallSpeed = 4;
+                if (!this.passed && this.x + this.width < wizard.x) {
+                    score++;
+                    scoreElement.textContent = score;
+                    this.passed = true;
+                }
 
-    // Wall class
-    class Wall {
-        constructor() {
-            this.width = 30;
-            this.x = canvas.width;
-            this.topHeight = Math.random() * (canvas.height / 2) + 50;
-            this.gap = 250; 
-            this.color = '#555';
-            this.passed = false;
-
-            this.initialY = this.topHeight;
-            this.offsetY = Math.random() * 100 + 50;
-            this.speedY = (Math.random() - 0.5) * 2;
-        }
-
-        draw() {
-            ctx.fillStyle = this.color;
-            ctx.fillRect(this.x, 0, this.width, this.topHeight);
-            const bottomY = this.topHeight + this.gap;
-            ctx.fillRect(this.x, bottomY, this.width, canvas.height - bottomY);
-
-            ctx.fillStyle = '#333';
-            for (let i = 0; i < this.topHeight; i += 15) {
-                ctx.fillRect(this.x, i, this.width, 5);
-            }
-            for (let i = bottomY; i < canvas.height; i += 15) {
-                ctx.fillRect(this.x, i, this.width, 5);
-            }
-        }
-
-        update() {
-            this.x -= wallSpeed;
-            this.topHeight = this.initialY + Math.sin(frameCount * this.speedY / 50) * this.offsetY;
-
-            if (!this.passed && this.x + this.width < wizard.x) {
-                score++;
-                scoreElement.textContent = score;
-                this.passed = true;
-            }
-
-            if (
-                wizard.x + wizard.width / 2 > this.x &&
-                wizard.x - wizard.width / 2 < this.x + this.width
-            ) {
                 if (
-                    wizard.y - wizard.height / 2 < this.topHeight ||
-                    wizard.y + wizard.height / 2 > this.topHeight + this.gap
+                    wizard.x + wizard.width / 2 > this.x &&
+                    wizard.x - wizard.width / 2 < this.x + this.width
                 ) {
-                    gameOver();
+                    if (
+                        wizard.y - wizard.height / 2 < this.topHeight ||
+                        wizard.y + wizard.height / 2 > this.topHeight + this.gap
+                    ) {
+                        gameOver();
+                    }
                 }
             }
         }
-    }
 
-    function gameLoop() {
-        if (!gameRunning) return;
+        function gameLoop() {
+            if (!gameRunning) return;
 
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-        drawBackground();
+            drawBackground();
 
-        wizard.update();
-        wizard.draw();
+            wizard.update();
+            wizard.draw();
 
-        if (score >= nextSpeedIncrease) {
-            wizard.speedY += 0.3;
-            wallSpeed += 0.3;
-            nextSpeedIncrease += 10;
+            if (score >= nextSpeedIncrease) {
+                wizard.speedY += 0.3;
+                wallSpeed += 0.3;
+                nextSpeedIncrease += 10;
 
-            speedUpText.style.display = 'block';
-            setTimeout(() => {
-                speedUpText.style.display = 'none';
-            }, 1000);
+                speedUpText.style.display = 'block';
+                setTimeout(() => {
+                    speedUpText.style.display = 'none';
+                }, 1000);
+            }
+
+            const lastWall = walls[walls.length - 1];
+            if (!lastWall || lastWall.x < canvas.width - wallDistance) {
+                const newWall = new Wall();
+                walls.push(newWall);
+            }
+
+            for (let i = walls.length - 1; i >= 0; i--) {
+                walls[i].update();
+                walls[i].draw();
+
+                if (walls[i].x + walls[i].width < 0) {
+                    walls.splice(i, 1);
+                }
+            }
+
+            frameCount++;
+            requestAnimationFrame(gameLoop);
         }
 
-        const lastWall = walls[walls.length - 1];
-        if (!lastWall || lastWall.x < canvas.width - wallDistance) {
-            const newWall = new Wall();
-            walls.push(newWall);
-        }
+        function drawBackground() {
+            if (isBackgroundLoaded) {
+                const ratio = backgroundImage.width / backgroundImage.height;
+                const imgHeight = canvas.height;
+                const imgWidth = imgHeight * ratio;
 
-        for (let i = walls.length - 1; i >= 0; i--) {
-            walls[i].update();
-            walls[i].draw();
+                backgroundX -= wallSpeed * 0.5;
 
-            if (walls[i].x + walls[i].width < 0) {
-                walls.splice(i, 1);
+                ctx.drawImage(backgroundImage, backgroundX, 0, imgWidth, imgHeight);
+                ctx.drawImage(backgroundImage, backgroundX + imgWidth, 0, imgWidth, imgHeight);
+
+                if (backgroundX <= -imgWidth) {
+                    backgroundX = 0;
+                }
+
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            } else {
+                const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+                gradient.addColorStop(0, '#8B0000');
+                gradient.addColorStop(1, '#000000');
+                ctx.fillStyle = gradient;
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
             }
         }
 
-        frameCount++;
-        requestAnimationFrame(gameLoop);
-    }
+        // Start game function
+        function startGame() {
+            gameRunning = true;
+            score = 0;
+            scoreElement.textContent = score;
+            walls = [];
+            frameCount = 0;
+            wizard.speedY = 7;
+            wallSpeed = 4;
+            nextSpeedIncrease = 10;
+            backgroundX = 0;
 
-    function drawBackground() {
-        if (isBackgroundLoaded) {
-            const ratio = backgroundImage.width / backgroundImage.height;
-            const imgHeight = canvas.height;
-            const imgWidth = imgHeight * ratio;
+            wizard.y = canvas.height / 2;
 
-            backgroundX -= wallSpeed * 0.5;
+            startScreen.style.display = 'none';
+            gameOverScreen.style.display = 'none';
+            speedUpText.style.display = 'none';
+            leaderboardContainer.style.display = 'none';
 
-            ctx.drawImage(backgroundImage, backgroundX, 0, imgWidth, imgHeight);
-            ctx.drawImage(backgroundImage, backgroundX + imgWidth, 0, imgWidth, imgHeight);
+            backgroundMusic.play().catch(e => console.log("Autoplay was prevented."));
 
-            if (backgroundX <= -imgWidth) {
-                backgroundX = 0;
+            gameLoop();
+        }
+
+        // Game over function
+        function gameOver() {
+            gameRunning = false;
+            backgroundMusic.currentTime = 0;
+            backgroundMusic.pause();
+
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('highScore', highScore);
+                highScoreElement.textContent = highScore;
             }
 
-            ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-        } else {
-            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
-            gradient.addColorStop(0, '#8B0000');
-            gradient.addColorStop(1, '#000000');
-            ctx.fillStyle = gradient;
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-        }
-    }
-
-    // Start game function
-    function startGame() {
-        gameRunning = true;
-        score = 0;
-        scoreElement.textContent = score;
-        walls = [];
-        frameCount = 0;
-        wizard.speedY = 7;
-        wallSpeed = 4;
-        nextSpeedIncrease = 10;
-        backgroundX = 0;
-
-        wizard.y = canvas.height / 2;
-
-        startScreen.style.display = 'none';
-        gameOverScreen.style.display = 'none';
-        speedUpText.style.display = 'none';
-        leaderboardContainer.style.display = 'none';
-
-        backgroundMusic.play().catch(e => debugLog("Autoplay was prevented: " + e));
-
-        gameLoop();
-    }
-
-    // Game over function
-    async function gameOver() {
-        gameRunning = false;
-        backgroundMusic.currentTime = 0;
-        backgroundMusic.pause();
-
-        if (score > highScore) {
-            highScore = score;
-            localStorage.setItem('highScore', highScore);
-            highScoreElement.textContent = highScore;
-        }
-
-        finalScoreElement.textContent = score;
-        finalHighScoreElement.textContent = highScore;
-        
-        // Check session validity before submitting score
-        const sessionValid = await checkSessionValidity();
-        
-        if (sessionValid && loggedInUser) {
-            submitScore();
-        } else if (sessionValid && !loggedInUser) {
-            // Refresh user info if session is valid but local state is outdated
-            await checkLoginStatus();
+            finalScoreElement.textContent = score;
+            finalHighScoreElement.textContent = highScore;
+            
+            // Submit score to backend if logged in
             if (loggedInUser) {
                 submitScore();
             }
-        } else {
-            debugLog('Session expired, score not submitted');
-            userInfoElement.innerHTML = '<span>Not Logged In</span>';
-            loggedInUser = null;
+
+            gameOverScreen.style.display = 'flex';
+            setTimeout(fetchAndDisplayLeaderboard, 1000);
         }
 
-        gameOverScreen.style.display = 'flex';
-        setTimeout(fetchAndDisplayLeaderboard, 1000);
-    }
-
-    // Functions for Discord Login and Leaderboard
-    async function checkLoginStatus() {
-        try {
-            loginStatus.textContent = 'Checking login status...';
-            loginError.style.display = 'none';
-            manualLoginCheck.style.display = 'none';
-            
-            // Check URL parameters first for login status
-            const urlParams = new URLSearchParams(window.location.search);
-            const loginSuccess = urlParams.get('login') === 'success';
-            const loginErrorParam = urlParams.get('login') === 'error';
-            
-            if (loginSuccess) {
-                debugLog('Login success detected from URL parameters');
-                // Clean URL
-                window.history.replaceState({}, document.title, window.location.pathname);
-            } else if (loginErrorParam) {
-                debugLog('Login error detected from URL parameters');
-                showLoginError('Login failed. Please try again.');
-                // Clean URL
-                window.history.replaceState({}, document.title, window.location.pathname);
-            }
-            
-            const response = await fetch('/api/user?t=' + new Date().getTime(), {
-                credentials: 'include',
-                headers: {
-                    'Cache-Control': 'no-cache'
+        // Functions for Discord Login and Leaderboard
+        async function checkLoginStatus() {
+            try {
+                const response = await fetch('/api/user');
+                const data = await response.json();
+                if (data.loggedIn) {
+                    loggedInUser = data.user;
+                    userInfoElement.innerHTML = `<span>Logged in as: <b>${loggedInUser.username}</b></span>`;
+                    loginScreen.style.display = 'none';
+                    startScreen.style.display = 'flex';
+                } else {
+                    loggedInUser = null;
+                    loginScreen.style.display = 'flex';
+                    startScreen.style.display = 'none';
                 }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            const data = await response.json();
-            debugLog('Login check response: ' + JSON.stringify(data));
-            
-            if (data.loggedIn) {
-                loggedInUser = data.user;
-                userInfoElement.innerHTML = `
-                    <span>Logged in as: <b>${loggedInUser.username}</b></span>
-                    <button id="logout-button" style="padding: 5px 10px; font-size: 0.8rem;">Logout</button>
-                `;
-                
-                // Add event listener to logout button
-                const logoutBtn = document.getElementById('logout-button');
-                if (logoutBtn) {
-                    logoutBtn.addEventListener('click', () => {
-                        window.location.href = '/logout';
-                    });
-                }
-                
-                loginScreen.style.display = 'none';
-                startScreen.style.display = 'flex';
-                loginStatus.textContent = 'Login successful!';
-                loginCheckAttempts = 0;
-                
-                debugLog('User successfully logged in');
-            } else {
-                handleNotLoggedIn();
-            }
-            
-            fetchAndDisplayLeaderboard();
-        } catch (error) {
-            debugLog('Failed to check login status: ' + error);
-            handleNotLoggedIn();
-            showLoginError('Connection error: ' + error.message);
-            manualLoginCheck.style.display = 'block';
-        }
-    }
-
-    function handleNotLoggedIn() {
-        loggedInUser = null;
-        userInfoElement.innerHTML = '<span>Not Logged In</span>';
-        loginScreen.style.display = 'flex';
-        startScreen.style.display = 'none';
-        loginStatus.textContent = 'Please login to play';
-        loginCheckAttempts++;
-        
-        // Show manual retry option
-        manualLoginCheck.style.display = 'block';
-        
-        if (loginCheckAttempts >= MAX_LOGIN_CHECKS) {
-            showLoginError('Login check failed. Please refresh the page.');
-        }
-    }
-
-    function showLoginError(message) {
-        loginError.textContent = message;
-        loginError.style.display = 'block';
-    }
-
-    async function checkSessionValidity() {
-        try {
-            const response = await fetch('/api/user?t=' + new Date().getTime(), {
-                credentials: 'include',
-                headers: {
-                    'Cache-Control': 'no-cache'
-                }
-            });
-            const data = await response.json();
-            return data.loggedIn;
-        } catch (error) {
-            debugLog('Failed to check session validity: ' + error);
-            return false;
-        }
-    }
-
-    async function submitScore() {
-        if (!loggedInUser) {
-            debugLog("User not logged in. Score not submitted.");
-            return;
-        }
-
-        try {
-            const response = await fetch('/api/leaderboard', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({
-                    userId: loggedInUser.id,
-                    username: loggedInUser.username,
-                    score: score
-                }),
-                credentials: 'include'
-            });
-
-            if (response.ok) {
-                debugLog('Score successfully saved!');
                 fetchAndDisplayLeaderboard();
-            } else if (response.status === 401) {
-                debugLog('Failed to save score: Unauthorized. Session expired.');
-                
-                // Clear user session and show alert
+            } catch (error) {
+                console.error('Failed to check login status:', error);
                 loggedInUser = null;
-                userInfoElement.innerHTML = '<span>Not Logged In</span>';
+                loginScreen.style.display = 'flex';
+                startScreen.style.display = 'none';
+                fetchAndDisplayLeaderboard();
+            }
+        }
+
+        async function submitScore() {
+            if (!loggedInUser) {
+                console.error("User not logged in. Score not submitted.");
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/leaderboard', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        userId: loggedInUser.id,
+                        username: loggedInUser.username,
+                        score: score
+                    })
+                });
+
+                if (response.ok) {
+                    console.log('Skor berhasil disimpan!');
+                } else if (response.status === 401) {
+                    console.error('Gagal menyimpan skor: Unauthorized. Sesi login hilang.');
+                } else {
+                    console.error(`Gagal menyimpan skor. Status: ${response.status} ${response.statusText}`);
+                }
+            } catch (error) {
+                console.error('Gagal mengirim skor:', error);
+            }
+        }
+
+        async function fetchAndDisplayLeaderboard() {
+            try {
+                const response = await fetch('/api/leaderboard');
+                const leaderboardData = await response.json();
+                leaderboardList.innerHTML = ''; // Clear existing list
                 
-                // Show session expired alert
-                sessionExpiredAlert.style.display = 'block';
-                setTimeout(() => {
-                    sessionExpiredAlert.style.display = 'none';
-                }, 3000);
-            } else {
-                debugLog(`Failed to save score. Status: ${response.status} ${response.statusText}`);
-                try {
-                    const errorData = await response.json();
-                    debugLog('Error details: ' + JSON.stringify(errorData));
-                } catch (e) {
-                    debugLog('Could not parse error response');
+                leaderboardData.forEach((entry, index) => {
+                    const li = document.createElement('li');
+                    li.innerHTML = `<b>${index + 1}.</b> ${entry.username} - <b>${entry.score}</b>`;
+                    leaderboardList.appendChild(li);
+                });
+                
+                leaderboardContainer.style.display = 'block';
+
+            } catch (error) {
+                console.error('Failed to fetch leaderboard:', error);
+                leaderboardContainer.style.display = 'none';
+            }
+        }
+
+
+        // Event listeners
+        loginButton.addEventListener('click', () => {
+            window.location.href = '/login';
+        });
+        startButton.addEventListener('click', startGame);
+        restartButton.addEventListener('click', startGame);
+
+        document.addEventListener('keydown', (e) => {
+            if (e.code === 'ArrowUp' || e.key === 'w') {
+                upPressed = true;
+            }
+            if (e.code === 'ArrowDown' || e.key === 's') {
+                downPressed = true;
+            }
+            if (!gameRunning && (startScreen.style.display !== 'none' || loginScreen.style.display !== 'none')) {
+                if (loggedInUser) {
+                    startGame();
+                } else {
+                    // Redirect to login if not logged in
+                    window.location.href = '/login';
                 }
             }
-        } catch (error) {
-            debugLog('Failed to submit score: ' + error);
-        }
-    }
+        });
 
-    async function fetchAndDisplayLeaderboard() {
-        try {
-            const response = await fetch('/api/leaderboard?t=' + new Date().getTime(), {
-                headers: {
-                    'Cache-Control': 'no-cache'
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'ArrowUp' || e.key === 'w') {
+                upPressed = false;
+            }
+            if (e.code === 'ArrowDown' || e.key === 's') {
+                downPressed = false;
+            }
+        });
+
+        canvas.addEventListener('touchstart', (e) => {
+            e.preventDefault(); 
+            const touchY = e.touches[0].clientY - canvas.getBoundingClientRect().top;
+            
+            if (touchY < canvas.height / 2) {
+                upPressed = true;
+                downPressed = false;
+            } else {
+                downPressed = true;
+                upPressed = false;
+            }
+
+            if (!gameRunning && (startScreen.style.display !== 'none' || loginScreen.style.display !== 'none')) {
+                if (loggedInUser) {
+                    startGame();
+                } else {
+                    window.location.href = '/login';
                 }
-            });
-            const leaderboardData = await response.json();
-            leaderboardList.innerHTML = '';
-            
-            leaderboardData.forEach((entry, index) => {
-                const li = document.createElement('li');
-                li.innerHTML = `<b>${index + 1}.</b> ${entry.username} - <b>${entry.score}</b>`;
-                leaderboardList.appendChild(li);
-            });
-            
-            leaderboardContainer.style.display = 'block';
-
-        } catch (error) {
-            debugLog('Failed to fetch leaderboard: ' + error);
-            leaderboardContainer.style.display = 'none';
-        }
-    }
-
-    // Check if we're returning from Discord OAuth
-    function checkOAuthReturn() {
-        const urlParams = new URLSearchParams(window.location.search);
-        const code = urlParams.get('code');
-        const error = urlParams.get('error');
-        const loginStatus = urlParams.get('login');
+            }
+        }, { passive: false });
         
-        if (code) {
-            debugLog('Returned from Discord OAuth with code');
-            // Remove the code from URL to prevent re-triggering
-            const newUrl = window.location.pathname;
-            window.history.replaceState({}, document.title, newUrl);
-            
-            // Show appropriate message
-            loginStatus.textContent = 'Completing login...';
-            
-            // Check login status after a short delay to allow server to process
-            setTimeout(() => checkLoginStatus(), 1000);
-        } else if (error) {
-            debugLog('OAuth error: ' + error);
-            showLoginError('Login failed: ' + error);
-            // Remove the error from URL
-            const newUrl = window.location.pathname;
-            window.history.replaceState({}, document.title, newUrl);
-        } else if (loginStatus === 'success') {
-            debugLog('Login success detected from URL');
-            // Clean URL and check login status
-            window.history.replaceState({}, document.title, window.location.pathname);
-            setTimeout(() => checkLoginStatus(), 500);
-        }
-    }
-
-    // Event listeners
-    loginButton.addEventListener('click', () => {
-        debugLog('Login button clicked');
-        // Clear any previous errors
-        loginError.style.display = 'none';
-        window.location.href = '/login';
-    });
-
-    retryLoginButton.addEventListener('click', () => {
-        debugLog('Retrying login check');
-        checkLoginStatus();
-    });
-
-    startButton.addEventListener('click', startGame);
-    restartButton.addEventListener('click', startGame);
-
-    document.addEventListener('keydown', (e) => {
-        if (e.code === 'ArrowUp' || e.key === 'w') {
-            upPressed = true;
-        }
-        if (e.code === 'ArrowDown' || e.key === 's') {
-            downPressed = true;
-        }
-        if (!gameRunning && startScreen.style.display === 'flex') {
-            startGame();
-        }
-    });
-
-    document.addEventListener('keyup', (e) => {
-        if (e.code === 'ArrowUp' || e.key === 'w') {
+        canvas.addEventListener('touchend', () => {
             upPressed = false;
-        }
-        if (e.code === 'ArrowDown' || e.key === 's') {
             downPressed = false;
-        }
-    });
+        });
 
-    canvas.addEventListener('touchstart', (e) => {
-        e.preventDefault(); 
-        const touchY = e.touches[0].clientY - canvas.getBoundingClientRect().top;
+        function animateStartScreen() {
+            if (!gameRunning && startScreen.style.display !== 'none' && loginScreen.style.display === 'none') {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                drawBackground();
+                wizard.draw();
+                frameCount++;
+                requestAnimationFrame(animateStartScreen);
+            }
+        }
         
-        if (touchY < canvas.height / 2) {
-            upPressed = true;
-            downPressed = false;
-        } else {
-            downPressed = true;
-            upPressed = false;
+        function resizeCanvas() {
+            const container = document.querySelector('.game-container');
+            canvas.width = container.clientWidth;
+            canvas.height = container.clientHeight;
+            
+            wizard.x = canvas.width / 4;
+            wizard.y = canvas.height / 2;
         }
 
-        if (!gameRunning && startScreen.style.display === 'flex') {
-            startGame();
-        }
-    }, { passive: false });
-    
-    canvas.addEventListener('touchend', () => {
-        upPressed = false;
-        downPressed = false;
-    });
+        document.addEventListener('DOMContentLoaded', () => {
+            resizeCanvas();
+            checkLoginStatus(); // Initial check
+        });
 
-    function resizeCanvas() {
-        const container = document.querySelector('.game-container');
-        canvas.width = container.clientWidth;
-        canvas.height = container.clientHeight;
-        
-        wizard.x = canvas.width / 4;
-        wizard.y = canvas.height / 2;
-    }
-
-    document.addEventListener('DOMContentLoaded', () => {
-        resizeCanvas();
-        checkOAuthReturn();
-        // Delay the initial login check to allow server to process OAuth callback
-        setTimeout(() => checkLoginStatus(), 500);
-    });
-
-    window.addEventListener('resize', resizeCanvas);
-</script>
+        window.addEventListener('resize', resizeCanvas);
+    </script>
 </body>
 </html>
