@@ -55,7 +55,7 @@
             z-index: 10;
             text-shadow: 1px 1px 2px #000;
         }
-
+        
         .score-container {
             background: rgba(0, 0, 0, 0.5);
             padding: 10px 20px;
@@ -81,7 +81,7 @@
         .game-over-screen {
             display: none;
         }
-
+        
         .login-screen {
             position: absolute;
             top: 0;
@@ -96,7 +96,7 @@
             color: white;
             z-index: 20;
         }
-
+        
         .leaderboard-container {
             position: absolute;
             right: 20px;
@@ -116,7 +116,7 @@
             margin-bottom: 10px;
             color: #ffcc00;
         }
-
+        
         .leaderboard-container ol {
             padding-left: 20px;
         }
@@ -131,7 +131,7 @@
         .leaderboard-container li:last-child {
             border-bottom: none;
         }
-
+        
         .user-info {
             display: flex;
             align-items: center;
@@ -173,7 +173,7 @@
             box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
             background: linear-gradient(to right, #ff0080, #ffcc00);
         }
-
+        
         .instructions {
             max-width: 90%;
             text-align: center;
@@ -580,8 +580,6 @@
             try {
                 const response = await fetch('/api/user');
                 const data = await response.json();
-                console.log("User data from backend:", data); // 🔥 Debug
-
                 if (data.loggedIn) {
                     loggedInUser = data.user;
                     userInfoElement.innerHTML = `<span>Logged in as: <b>${loggedInUser.username}</b></span>`;
@@ -602,7 +600,6 @@
             }
         }
 
-
         async function submitScore() {
             if (!loggedInUser) {
                 console.error("User not logged in. Score not submitted.");
@@ -616,7 +613,7 @@
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        userId: loggedInUser.id,      // pastikan ada "id"
+                        userId: loggedInUser.id,
                         username: loggedInUser.username,
                         score: score
                     })
@@ -624,8 +621,6 @@
 
                 if (response.ok) {
                     console.log('Skor berhasil disimpan!');
-                    // 🔥 Tambahkan ini supaya leaderboard langsung update
-                    fetchAndDisplayLeaderboard();
                 } else if (response.status === 401) {
                     console.error('Gagal menyimpan skor: Unauthorized. Sesi login hilang.');
                 } else {
@@ -635,7 +630,6 @@
                 console.error('Gagal mengirim skor:', error);
             }
         }
-
 
         async function fetchAndDisplayLeaderboard() {
             try {
