@@ -4,20 +4,21 @@ const passport = require('passport');
 const DiscordStrategy = require('passport-discord').Strategy;
 const axios = require('axios');
 const path = require('path');
-const { createClient } = require('@vercel/kv'); // Import library Vercel KV
+const { createClient } = require('@vercel/kv');
 
-// Mengambil kredensial dari environment variables
+// Inisialisasi Klien Vercel KV dengan kredensial dari environment variables
 const kv = createClient({
-  url: process.env.KV_REST_API_URL,
-  token: process.env.KV_REST_API_TOKEN,
+    url: process.env.KV_REST_API_URL,
+    token: process.env.KV_REST_API_TOKEN,
 });
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ... (Kode Passport, session, dan middleware lainnya sama) ...
+// Discord OAuth2 Scopes
 const scopes = ['identify'];
 
+// Konfigurasi Passport
 passport.serializeUser(function(user, done) {
     done(null, user);
 });
@@ -37,6 +38,7 @@ passport.use(new DiscordStrategy({
     });
 }));
 
+// Middleware
 app.use(session({
     secret: 'mysecret',
     resave: false,
@@ -46,15 +48,20 @@ app.use(passport.initialize());
 app.use(passport.session());
 app.use(express.json());
 
-// BARIS YANG DIPERBAIKI: Express sekarang tahu untuk menyajikan file dari folder 'public'
+// Melayani file statis dari direktori 'public'
 app.use(express.static(path.join(__dirname, 'public')));
-
 
 // Rute untuk mendapatkan dan menyimpan skor
 app.get('/api/leaderboard', async (req, res) => {
     try {
-        // Ambil data dari Vercel KV, atau array kosong jika tidak ada
-        const leaderboardData = await kv.get('leaderboard') || [];
+        let leaderboardData = await kv.get('leaderboard') || [];
+        
+        // Memastikan data yang diambil dari KV adalah array yang valid
+        if (!Array.isArray(leaderboardData)) {
+            leaderboardData = [];
+            console.warn('Leaderboard data in KV was not an array. Resetting.');
+        }
+
         const sortedLeaderboard = leaderboardData.sort((a, b) => b.score - a.score).slice(0, 10);
         res.json(sortedLeaderboard);
     } catch (error) {
@@ -71,22 +78,24 @@ app.post('/api/leaderboard', async (req, res) => {
     const { userId, username, score } = req.body;
 
     try {
-        // Ambil data leaderboard yang sudah ada dari Vercel KV
-        const currentLeaderboard = await kv.get('leaderboard') || [];
+        let currentLeaderboard = await kv.get('leaderboard') || [];
+        
+        // Memastikan data yang diambil adalah array yang valid
+        if (!Array.isArray(currentLeaderboard)) {
+            currentLeaderboard = [];
+            console.warn('Leaderboard data in KV was not an array. Resetting.');
+        }
 
         const existingEntryIndex = currentLeaderboard.findIndex(entry => entry.userId === userId);
 
         if (existingEntryIndex !== -1) {
-            // Jika user sudah ada, perbarui skor jika lebih tinggi
             if (score > currentLeaderboard[existingEntryIndex].score) {
                 currentLeaderboard[existingEntryIndex].score = score;
             }
         } else {
-            // Jika user belum ada, tambahkan entri baru
             currentLeaderboard.push({ userId, username, score });
         }
         
-        // Simpan kembali data yang sudah diperbarui ke Vercel KV
         await kv.set('leaderboard', currentLeaderboard);
         
         res.sendStatus(200);
@@ -96,18 +105,15 @@ app.post('/api/leaderboard', async (req, res) => {
     }
 });
 
-
-// Rute untuk login Discord
+// Rute login dan autentikasi
 app.get('/login', passport.authenticate('discord'));
 
-// Rute callback setelah autentikasi
 app.get('/auth/discord/callback', passport.authenticate('discord', {
     failureRedirect: '/'
 }), (req, res) => {
     res.redirect('/');
 });
 
-// Rute untuk mendapatkan status login pengguna
 app.get('/api/user', (req, res) => {
     if (req.isAuthenticated()) {
         res.json({ loggedIn: true, user: req.user });
@@ -116,10 +122,12 @@ app.get('/api/user', (req, res) => {
     }
 });
 
+// Melayani halaman utama
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Menjalankan server
 app.listen(PORT, () => {
-        console.log(`Server is running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
