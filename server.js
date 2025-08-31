@@ -4,15 +4,18 @@ const passport = require('passport');
 const DiscordStrategy = require('passport-discord').Strategy;
 const axios = require('axios');
 const path = require('path');
+const { createClient } = require('@vercel/kv'); // Import library Vercel KV
 
-// Pastikan .env sudah dimuat di proyek lokal Anda
-// require('dotenv').config();
+// Mengambil kredensial dari environment variables
+const kv = createClient({
+  url: process.env.KV_REST_API_URL,
+  token: process.env.KV_REST_API_TOKEN,
+});
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-let leaderboard = [];
-
+// ... (Kode Passport, session, dan middleware lainnya sama) ...
 const scopes = ['identify'];
 
 passport.serializeUser(function(user, done) {
@@ -46,6 +49,54 @@ app.use(express.json());
 // BARIS YANG DIPERBAIKI: Express sekarang tahu untuk menyajikan file dari folder 'public'
 app.use(express.static(path.join(__dirname, 'public')));
 
+
+// Rute untuk mendapatkan dan menyimpan skor
+app.get('/api/leaderboard', async (req, res) => {
+    try {
+        // Ambil data dari Vercel KV, atau array kosong jika tidak ada
+        const leaderboardData = await kv.get('leaderboard') || [];
+        const sortedLeaderboard = leaderboardData.sort((a, b) => b.score - a.score).slice(0, 10);
+        res.json(sortedLeaderboard);
+    } catch (error) {
+        console.error('Failed to fetch leaderboard from KV:', error);
+        res.status(500).send('Error fetching leaderboard');
+    }
+});
+
+app.post('/api/leaderboard', async (req, res) => {
+    if (!req.isAuthenticated()) {
+        return res.status(401).send('Unauthorized');
+    }
+
+    const { userId, username, score } = req.body;
+
+    try {
+        // Ambil data leaderboard yang sudah ada dari Vercel KV
+        const currentLeaderboard = await kv.get('leaderboard') || [];
+
+        const existingEntryIndex = currentLeaderboard.findIndex(entry => entry.userId === userId);
+
+        if (existingEntryIndex !== -1) {
+            // Jika user sudah ada, perbarui skor jika lebih tinggi
+            if (score > currentLeaderboard[existingEntryIndex].score) {
+                currentLeaderboard[existingEntryIndex].score = score;
+            }
+        } else {
+            // Jika user belum ada, tambahkan entri baru
+            currentLeaderboard.push({ userId, username, score });
+        }
+        
+        // Simpan kembali data yang sudah diperbarui ke Vercel KV
+        await kv.set('leaderboard', currentLeaderboard);
+        
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('Failed to save score to KV:', error);
+        res.status(500).send('Error saving score');
+    }
+});
+
+
 // Rute untuk login Discord
 app.get('/login', passport.authenticate('discord'));
 
@@ -65,33 +116,10 @@ app.get('/api/user', (req, res) => {
     }
 });
 
-// Rute untuk mendapatkan dan menyimpan skor
-app.get('/api/leaderboard', (req, res) => {
-    const sortedLeaderboard = leaderboard.sort((a, b) => b.score - a.score).slice(0, 10);
-    res.json(sortedLeaderboard);
-});
-
-app.post('/api/leaderboard', (req, res) => {
-    const { userId, username, score } = req.body;
-    
-    const existingEntry = leaderboard.find(entry => entry.userId === userId);
-    
-    if (existingEntry) {
-        if (score > existingEntry.score) {
-            existingEntry.score = score;
-        }
-    } else {
-        leaderboard.push({ userId, username, score });
-    }
-    
-    res.sendStatus(200);
-});
-
-// BARIS YANG DIPERBAIKI: Sekarang melayani index.html dari dalam folder 'public'
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+        console.log(`Server is running on port ${PORT}`);
 });
