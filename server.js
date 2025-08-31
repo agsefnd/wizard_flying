@@ -51,39 +51,53 @@ app.use(express.json());
 // Melayani file statis dari direktori 'public'
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Rute untuk mendapatkan leaderboard dari Vercel KV (menggunakan Sorted Set)
+// Rute untuk mendapatkan leaderboard dari Vercel KV (menggunakan GET)
 app.get('/api/leaderboard', async (req, res) => {
     try {
-        // Ambil 10 skor teratas dari Redis Sorted Set
-        const leaderboardData = await kv.zrevrange('leaderboard', 0, 9, 'WITHSCORES');
+        let leaderboardData = await kv.get('leaderboard') || [];
         
-        // Memformat data menjadi array objek yang lebih mudah dibaca
-        const formattedLeaderboard = [];
-        for (let i = 0; i < leaderboardData.length; i += 2) {
-            const username = leaderboardData[i];
-            const score = parseInt(leaderboardData[i + 1], 10);
-            formattedLeaderboard.push({ username, score });
+        // Memastikan data yang diambil dari KV adalah array yang valid
+        if (!Array.isArray(leaderboardData)) {
+            leaderboardData = [];
+            console.warn('Leaderboard data in KV was not an array. Resetting.');
         }
-        
-        res.json(formattedLeaderboard);
+
+        const sortedLeaderboard = leaderboardData.sort((a, b) => b.score - a.score).slice(0, 10);
+        res.json(sortedLeaderboard);
     } catch (error) {
         console.error('Failed to fetch leaderboard from KV:', error);
         res.status(500).send('Error fetching leaderboard');
     }
 });
 
-// Rute untuk mengirimkan skor ke Vercel KV (menggunakan Sorted Set)
+// Rute untuk mengirimkan skor ke Vercel KV (menggunakan POST)
 app.post('/api/leaderboard', async (req, res) => {
     if (!req.isAuthenticated()) {
         return res.status(401).send('Unauthorized');
     }
 
-    const { username, score } = req.body;
+    const { userId, username, score } = req.body;
 
     try {
-        // Gunakan ZADD untuk menambahkan/memperbarui skor.
-        // Redis akan otomatis menangani pembaruan jika pengguna sudah ada.
-        await kv.zadd('leaderboard', { score, member: username });
+        let currentLeaderboard = await kv.get('leaderboard') || [];
+        
+        // Memastikan data yang diambil adalah array yang valid
+        if (!Array.isArray(currentLeaderboard)) {
+            currentLeaderboard = [];
+            console.warn('Leaderboard data in KV was not an array. Resetting.');
+        }
+
+        const existingEntryIndex = currentLeaderboard.findIndex(entry => entry.userId === userId);
+
+        if (existingEntryIndex !== -1) {
+            if (score > currentLeaderboard[existingEntryIndex].score) {
+                currentLeaderboard[existingEntryIndex].score = score;
+            }
+        } else {
+            currentLeaderboard.push({ userId, username, score });
+        }
+        
+        await kv.set('leaderboard', currentLeaderboard);
         
         res.sendStatus(200);
     } catch (error) {
