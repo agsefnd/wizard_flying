@@ -10,16 +10,19 @@ const app = express();
 
 // === Middleware ===
 app.use(express.json());
+
+// ✅ Atur CORS biar frontend bisa akses API
 app.use(cors({
     origin: process.env.FRONTEND_URL || "*",
     credentials: true
 }));
 
+// ✅ Session untuk login
 app.use(session({
     secret: process.env.SESSION_SECRET || 'supersecret',
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false }
+    cookie: { secure: process.env.NODE_ENV === "production" }
 }));
 
 app.use(passport.initialize());
@@ -35,12 +38,8 @@ passport.use(new DiscordStrategy({
     return done(null, profile);
 }));
 
-passport.serializeUser((user, done) => {
-    done(null, user);
-});
-passport.deserializeUser((obj, done) => {
-    done(null, obj);
-});
+passport.serializeUser((user, done) => done(null, user));
+passport.deserializeUser((obj, done) => done(null, obj));
 
 // === Routes ===
 app.get('/auth/discord', passport.authenticate('discord'));
@@ -53,9 +52,18 @@ app.get('/auth/discord/callback',
 );
 
 app.get('/auth/logout', (req, res) => {
-    req.logout(() => {
-        res.redirect('/');
-    });
+    req.logout(() => res.redirect('/'));
+});
+
+// === API Routes ===
+
+// User info (buat frontend check login)
+app.get('/api/user', (req, res) => {
+    if (req.isAuthenticated()) {
+        res.json({ loggedIn: true, user: req.user });
+    } else {
+        res.json({ loggedIn: false });
+    }
 });
 
 // Get leaderboard
