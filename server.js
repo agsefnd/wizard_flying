@@ -4,7 +4,7 @@ const passport = require('passport');
 const DiscordStrategy = require('passport-discord').Strategy;
 const axios = require('axios');
 const path = require('path');
-const { createClient } = require('@vercel/kv');
+const { createClient } = require('@vercel/kv'); // Menggunakan Vercel KV untuk persistensi data
 
 // Inisialisasi Klien Vercel KV dengan kredensial dari environment variables
 const kv = createClient({
