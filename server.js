@@ -2,7 +2,6 @@ const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const DiscordStrategy = require('passport-discord').Strategy;
-const axios = require('axios');
 const path = require('path');
 const { createClient } = require('@vercel/kv');
 
@@ -40,9 +39,14 @@ passport.use(new DiscordStrategy({
 
 // Middleware
 app.use(session({
-    secret: 'mysecret',
+    secret: process.env.SESSION_SECRET || 'my-secret-key-change-in-production',
     resave: false,
-    saveUninitialized: false
+    saveUninitialized: false,
+    cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000, // 24 hours
+        httpOnly: true
+    }
 }));
 app.use(passport.initialize());
 app.use(passport.session());
@@ -72,17 +76,23 @@ app.get('/api/leaderboard', async (req, res) => {
         res.json(sortedLeaderboard);
     } catch (error) {
         console.error('Failed to fetch leaderboard from KV:', error);
-        res.status(500).send('Error fetching leaderboard');
+        res.status(500).json({ error: 'Error fetching leaderboard' });
     }
 });
 
 // Rute untuk mengirimkan skor ke Vercel KV
 app.post('/api/leaderboard', async (req, res) => {
     if (!req.isAuthenticated()) {
-        return res.status(401).send('Unauthorized');
+        console.log('Unauthorized attempt to submit score');
+        return res.status(401).json({ error: 'Unauthorized - Please login again' });
     }
 
     const { userId, username, score } = req.body;
+
+    // Validasi data
+    if (!userId || !username || score === undefined) {
+        return res.status(400).json({ error: 'Invalid data' });
+    }
 
     try {
         let currentLeaderboard = await kv.get('leaderboard') || [];
@@ -112,10 +122,10 @@ app.post('/api/leaderboard', async (req, res) => {
         // Simpan kembali ke KV
         await kv.set('leaderboard', currentLeaderboard);
         
-        res.sendStatus(200);
+        res.json({ success: true, message: 'Score saved successfully' });
     } catch (error) {
         console.error('Failed to save score to KV:', error);
-        res.status(500).send('Error saving score');
+        res.status(500).json({ error: 'Error saving score' });
     }
 });
 
@@ -128,6 +138,7 @@ app.get('/auth/discord/callback', passport.authenticate('discord', {
     res.redirect('/');
 });
 
+// Rute untuk mendapatkan informasi user
 app.get('/api/user', (req, res) => {
     if (req.isAuthenticated()) {
         res.json({ loggedIn: true, user: req.user });
@@ -136,9 +147,35 @@ app.get('/api/user', (req, res) => {
     }
 });
 
+// Rute logout
+app.get('/logout', (req, res) => {
+    req.logout(function(err) {
+        if (err) {
+            console.error('Logout error:', err);
+        }
+        req.session.destroy(function(err) {
+            if (err) {
+                console.error('Session destruction error:', err);
+            }
+            res.redirect('/');
+        });
+    });
+});
+
 // Melayani halaman utama
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Menangani error 404
+app.use((req, res) => {
+    res.status(404).send('Page not found');
+});
+
+// Error handling middleware
+app.use((err, req, res, next) => {
+    console.error(err.stack);
+    res.status(500).send('Something broke!');
 });
 
 // Menjalankan server
