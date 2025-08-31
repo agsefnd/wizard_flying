@@ -51,26 +51,35 @@ app.use(express.json());
 // Melayani file statis dari direktori 'public'
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Rute untuk mendapatkan leaderboard dari Vercel KV (menggunakan GET)
+// Rute untuk mendapatkan leaderboard dari Vercel KV
 app.get('/api/leaderboard', async (req, res) => {
     try {
         let leaderboardData = await kv.get('leaderboard') || [];
         
         // Memastikan data yang diambil dari KV adalah array yang valid
         if (!Array.isArray(leaderboardData)) {
+            // Hapus kunci yang rusak dan gunakan array kosong
+            await kv.del('leaderboard');
             leaderboardData = [];
-            console.warn('Leaderboard data in KV was not an array. Resetting.');
+            console.warn('Leaderboard data in KV was not an array. Resetting and deleting the key.');
         }
 
         const sortedLeaderboard = leaderboardData.sort((a, b) => b.score - a.score).slice(0, 10);
         res.json(sortedLeaderboard);
     } catch (error) {
+        // Jika terjadi kesalahan, hapus kunci yang rusak untuk mencegahnya di masa depan
         console.error('Failed to fetch leaderboard from KV:', error);
+        try {
+            await kv.del('leaderboard');
+            console.warn('Attempted to delete the corrupted "leaderboard" key.');
+        } catch (delError) {
+            console.error('Failed to delete corrupted key:', delError);
+        }
         res.status(500).send('Error fetching leaderboard');
     }
 });
 
-// Rute untuk mengirimkan skor ke Vercel KV (menggunakan POST)
+// Rute untuk mengirimkan skor ke Vercel KV
 app.post('/api/leaderboard', async (req, res) => {
     if (!req.isAuthenticated()) {
         return res.status(401).send('Unauthorized');
@@ -83,8 +92,10 @@ app.post('/api/leaderboard', async (req, res) => {
         
         // Memastikan data yang diambil adalah array yang valid
         if (!Array.isArray(currentLeaderboard)) {
+            // Hapus kunci yang rusak dan gunakan array kosong
+            await kv.del('leaderboard');
             currentLeaderboard = [];
-            console.warn('Leaderboard data in KV was not an array. Resetting.');
+            console.warn('Leaderboard data in KV was not an array. Resetting and deleting the key.');
         }
 
         const existingEntryIndex = currentLeaderboard.findIndex(entry => entry.userId === userId);
@@ -101,7 +112,14 @@ app.post('/api/leaderboard', async (req, res) => {
         
         res.sendStatus(200);
     } catch (error) {
+        // Jika terjadi kesalahan, hapus kunci yang rusak
         console.error('Failed to save score to KV:', error);
+        try {
+            await kv.del('leaderboard');
+            console.warn('Attempted to delete the corrupted "leaderboard" key.');
+        } catch (delError) {
+            console.error('Failed to delete corrupted key:', delError);
+        }
         res.status(500).send('Error saving score');
     }
 });
