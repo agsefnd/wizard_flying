@@ -2,7 +2,6 @@ const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const DiscordStrategy = require('passport-discord').Strategy;
-const axios = require('axios');
 const path = require('path');
 const { createClient } = require('@vercel/kv');
 
@@ -40,13 +39,23 @@ passport.use(new DiscordStrategy({
 
 // Middleware
 app.use(session({
-    secret: 'mysecret',
+    secret: process.env.SESSION_SECRET || 'mysecret',
     resave: false,
-    saveUninitialized: false
+    saveUninitialized: false,
+    cookie: {
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    }
 }));
 app.use(passport.initialize());
 app.use(passport.session());
 app.use(express.json());
+
+// Middleware untuk logging (untuk debugging)
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.path} - Authenticated: ${req.isAuthenticated()}`);
+    next();
+});
 
 // Melayani file statis dari direktori 'public'
 app.use(express.static(path.join(__dirname, 'public')));
@@ -72,17 +81,23 @@ app.get('/api/leaderboard', async (req, res) => {
         res.json(sortedLeaderboard);
     } catch (error) {
         console.error('Failed to fetch leaderboard from KV:', error);
-        res.status(500).send('Error fetching leaderboard');
+        res.status(500).json({ error: 'Error fetching leaderboard' });
     }
 });
 
 // Rute untuk mengirimkan skor ke Vercel KV
 app.post('/api/leaderboard', async (req, res) => {
     if (!req.isAuthenticated()) {
-        return res.status(401).send('Unauthorized');
+        console.log('Unauthorized attempt to save score');
+        return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const { userId, username, score } = req.body;
+
+    // Validasi input
+    if (!userId || !username || typeof score !== 'number') {
+        return res.status(400).json({ error: 'Invalid input data' });
+    }
 
     try {
         let currentLeaderboard = await kv.get('leaderboard') || [];
@@ -103,34 +118,66 @@ app.post('/api/leaderboard', async (req, res) => {
             if (score > currentLeaderboard[existingEntryIndex].score) {
                 currentLeaderboard[existingEntryIndex].score = score;
                 currentLeaderboard[existingEntryIndex].username = username; // Update username jika berubah
+                console.log(`Updated score for user ${username} to ${score}`);
+            } else {
+                console.log(`Score ${score} not higher than existing score ${currentLeaderboard[existingEntryIndex].score} for user ${username}`);
             }
         } else {
             // Jika user baru, tambahkan ke leaderboard
             currentLeaderboard.push({ userId, username, score });
+            console.log(`Added new user ${username} with score ${score}`);
+        }
+        
+        // Batasi leaderboard hingga 100 entri untuk menghindari data terlalu besar
+        if (currentLeaderboard.length > 100) {
+            // Simpan hanya 100 skor tertinggi
+            currentLeaderboard = currentLeaderboard
+                .sort((a, b) => b.score - a.score)
+                .slice(0, 100);
         }
         
         // Simpan kembali ke KV
         await kv.set('leaderboard', currentLeaderboard);
         
-        res.sendStatus(200);
+        res.json({ success: true, message: 'Score saved successfully' });
     } catch (error) {
         console.error('Failed to save score to KV:', error);
-        res.status(500).send('Error saving score');
+        res.status(500).json({ error: 'Error saving score' });
     }
 });
 
 // Rute login dan autentikasi
 app.get('/login', passport.authenticate('discord'));
 
-app.get('/auth/discord/callback', passport.authenticate('discord', {
-    failureRedirect: '/'
-}), (req, res) => {
-    res.redirect('/');
+app.get('/auth/discord/callback', 
+    passport.authenticate('discord', { failureRedirect: '/' }),
+    (req, res) => {
+        // Setelah login berhasil, redirect ke halaman utama
+        res.redirect('/');
+    }
+);
+
+// Rute logout
+app.get('/logout', (req, res) => {
+    req.logout((err) => {
+        if (err) {
+            console.error('Error during logout:', err);
+            return res.status(500).json({ error: 'Error during logout' });
+        }
+        res.redirect('/');
+    });
 });
 
 app.get('/api/user', (req, res) => {
     if (req.isAuthenticated()) {
-        res.json({ loggedIn: true, user: req.user });
+        res.json({ 
+            loggedIn: true, 
+            user: {
+                id: req.user.id,
+                username: req.user.username,
+                avatar: req.user.avatar
+            } 
+        });
     } else {
         res.json({ loggedIn: false });
     }
