@@ -64,17 +64,14 @@ app.get('/api/leaderboard', async (req, res) => {
             console.warn('Leaderboard data in KV was not an array. Resetting and deleting the key.');
         }
 
-        const sortedLeaderboard = leaderboardData.sort((a, b) => b.score - a.score).slice(0, 10);
+        // Urutkan berdasarkan skor tertinggi dan ambil 10 teratas
+        const sortedLeaderboard = leaderboardData
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 10);
+            
         res.json(sortedLeaderboard);
     } catch (error) {
-        // Jika terjadi kesalahan, hapus kunci yang rusak untuk mencegahnya di masa depan
         console.error('Failed to fetch leaderboard from KV:', error);
-        try {
-            await kv.del('leaderboard');
-            console.warn('Attempted to delete the corrupted "leaderboard" key.');
-        } catch (delError) {
-            console.error('Failed to delete corrupted key:', delError);
-        }
         res.status(500).send('Error fetching leaderboard');
     }
 });
@@ -98,28 +95,26 @@ app.post('/api/leaderboard', async (req, res) => {
             console.warn('Leaderboard data in KV was not an array. Resetting and deleting the key.');
         }
 
+        // Cari entri yang sudah ada untuk user ini
         const existingEntryIndex = currentLeaderboard.findIndex(entry => entry.userId === userId);
 
         if (existingEntryIndex !== -1) {
+            // Jika user sudah ada, update skor hanya jika lebih tinggi
             if (score > currentLeaderboard[existingEntryIndex].score) {
                 currentLeaderboard[existingEntryIndex].score = score;
+                currentLeaderboard[existingEntryIndex].username = username; // Update username jika berubah
             }
         } else {
+            // Jika user baru, tambahkan ke leaderboard
             currentLeaderboard.push({ userId, username, score });
         }
         
+        // Simpan kembali ke KV
         await kv.set('leaderboard', currentLeaderboard);
         
         res.sendStatus(200);
     } catch (error) {
-        // Jika terjadi kesalahan, hapus kunci yang rusak
         console.error('Failed to save score to KV:', error);
-        try {
-            await kv.del('leaderboard');
-            console.warn('Attempted to delete the corrupted "leaderboard" key.');
-        } catch (delError) {
-            console.error('Failed to delete corrupted key:', delError);
-        }
         res.status(500).send('Error saving score');
     }
 });
