@@ -1,63 +1,138 @@
-require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
 const passport = require('passport');
 const DiscordStrategy = require('passport-discord').Strategy;
-const { kv } = require('@vercel/kv');
-const cors = require('cors');
+const axios = require('axios');
+const path = require('path');
+const { createClient } = require('@vercel/kv');
+
+// Inisialisasi Klien Vercel KV dengan kredensial dari environment variables
+const kv = createClient({
+    url: process.env.KV_REST_API_URL,
+    token: process.env.KV_REST_API_TOKEN,
+});
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// === Middleware ===
-app.use(express.json());
+// Discord OAuth2 Scopes
+const scopes = ['identify'];
 
-// ✅ Atur CORS biar frontend bisa akses API
-app.use(cors({
-    origin: process.env.FRONTEND_URL || "*",
-    credentials: true
-}));
+// Konfigurasi Passport
+passport.serializeUser(function(user, done) {
+    done(null, user);
+});
 
-// ✅ Session untuk login
-app.use(session({
-    secret: process.env.SESSION_SECRET || 'supersecret',
-    resave: false,
-    saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === "production" }
-}));
+passport.deserializeUser(function(obj, done) {
+    done(null, obj);
+});
 
-app.use(passport.initialize());
-app.use(passport.session());
-
-// === Passport Discord Strategy ===
 passport.use(new DiscordStrategy({
     clientID: process.env.DISCORD_CLIENT_ID,
     clientSecret: process.env.DISCORD_CLIENT_SECRET,
-    callbackURL: process.env.DISCORD_CALLBACK_URL,
-    scope: ['identify']
-}, (accessToken, refreshToken, profile, done) => {
-    return done(null, profile);
+    callbackURL: process.env.REDIRECT_URI,
+    scope: scopes
+}, function(accessToken, refreshToken, profile, done) {
+    process.nextTick(function() {
+        return done(null, profile);
+    });
 }));
 
-passport.serializeUser((user, done) => done(null, user));
-passport.deserializeUser((obj, done) => done(null, obj));
+// Middleware
+app.use(session({
+    secret: 'mysecret',
+    resave: false,
+    saveUninitialized: false
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+app.use(express.json());
 
-// === Routes ===
-app.get('/auth/discord', passport.authenticate('discord'));
+// Melayani file statis dari direktori 'public'
+app.use(express.static(path.join(__dirname, 'public')));
 
-app.get('/auth/discord/callback',
-    passport.authenticate('discord', { failureRedirect: '/' }),
-    (req, res) => {
-        res.redirect(process.env.FRONTEND_URL || '/');
+// Rute untuk mendapatkan leaderboard dari Vercel KV
+app.get('/api/leaderboard', async (req, res) => {
+    try {
+        let leaderboardData = await kv.get('leaderboard') || [];
+        
+        // Memastikan data yang diambil dari KV adalah array yang valid
+        if (!Array.isArray(leaderboardData)) {
+            // Hapus kunci yang rusak dan gunakan array kosong
+            await kv.del('leaderboard');
+            leaderboardData = [];
+            console.warn('Leaderboard data in KV was not an array. Resetting and deleting the key.');
+        }
+
+        const sortedLeaderboard = leaderboardData.sort((a, b) => b.score - a.score).slice(0, 10);
+        res.json(sortedLeaderboard);
+    } catch (error) {
+        // Jika terjadi kesalahan, hapus kunci yang rusak untuk mencegahnya di masa depan
+        console.error('Failed to fetch leaderboard from KV:', error);
+        try {
+            await kv.del('leaderboard');
+            console.warn('Attempted to delete the corrupted "leaderboard" key.');
+        } catch (delError) {
+            console.error('Failed to delete corrupted key:', delError);
+        }
+        res.status(500).send('Error fetching leaderboard');
     }
-);
-
-app.get('/auth/logout', (req, res) => {
-    req.logout(() => res.redirect('/'));
 });
 
-// === API Routes ===
+// Rute untuk mengirimkan skor ke Vercel KV
+app.post('/api/leaderboard', async (req, res) => {
+    if (!req.isAuthenticated()) {
+        return res.status(401).send('Unauthorized');
+    }
 
-// User info (buat frontend check login)
+    const { userId, username, score } = req.body;
+
+    try {
+        let currentLeaderboard = await kv.get('leaderboard') || [];
+        
+        // Memastikan data yang diambil adalah array yang valid
+        if (!Array.isArray(currentLeaderboard)) {
+            // Hapus kunci yang rusak dan gunakan array kosong
+            await kv.del('leaderboard');
+            currentLeaderboard = [];
+            console.warn('Leaderboard data in KV was not an array. Resetting and deleting the key.');
+        }
+
+        const existingEntryIndex = currentLeaderboard.findIndex(entry => entry.userId === userId);
+
+        if (existingEntryIndex !== -1) {
+            if (score > currentLeaderboard[existingEntryIndex].score) {
+                currentLeaderboard[existingEntryIndex].score = score;
+            }
+        } else {
+            currentLeaderboard.push({ userId, username, score });
+        }
+        
+        await kv.set('leaderboard', currentLeaderboard);
+        
+        res.sendStatus(200);
+    } catch (error) {
+        // Jika terjadi kesalahan, hapus kunci yang rusak
+        console.error('Failed to save score to KV:', error);
+        try {
+            await kv.del('leaderboard');
+            console.warn('Attempted to delete the corrupted "leaderboard" key.');
+        } catch (delError) {
+            console.error('Failed to delete corrupted key:', delError);
+        }
+        res.status(500).send('Error saving score');
+    }
+});
+
+// Rute login dan autentikasi
+app.get('/login', passport.authenticate('discord'));
+
+app.get('/auth/discord/callback', passport.authenticate('discord', {
+    failureRedirect: '/'
+}), (req, res) => {
+    res.redirect('/');
+});
+
 app.get('/api/user', (req, res) => {
     if (req.isAuthenticated()) {
         res.json({ loggedIn: true, user: req.user });
@@ -66,65 +141,12 @@ app.get('/api/user', (req, res) => {
     }
 });
 
-// Get leaderboard
-app.get('/api/leaderboard', async (req, res) => {
-    try {
-        let leaderboard = await kv.get('leaderboard');
-
-        if (!leaderboard) leaderboard = [];
-        else if (typeof leaderboard === 'string') leaderboard = JSON.parse(leaderboard);
-
-        if (!Array.isArray(leaderboard)) leaderboard = [];
-
-        leaderboard.sort((a, b) => b.score - a.score);
-        res.json(leaderboard);
-    } catch (err) {
-        console.error('Error reading leaderboard:', err);
-        res.status(500).send('Error reading leaderboard');
-    }
+// Melayani halaman utama
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// Post score → hanya user login
-app.post('/api/leaderboard', async (req, res) => {
-    if (!req.isAuthenticated()) {
-        return res.status(401).send('Unauthorized');
-    }
-
-    const { score } = req.body;
-    const userId = req.user.id;
-    const username = req.user.username;
-
-    if (typeof score !== 'number') {
-        return res.status(400).send('Invalid score');
-    }
-
-    try {
-        let leaderboard = await kv.get('leaderboard');
-
-        if (!leaderboard) leaderboard = [];
-        else if (typeof leaderboard === 'string') leaderboard = JSON.parse(leaderboard);
-
-        if (!Array.isArray(leaderboard)) leaderboard = [];
-
-        const idx = leaderboard.findIndex(e => e.userId === userId);
-        if (idx !== -1) {
-            if (score > leaderboard[idx].score) {
-                leaderboard[idx].score = score;
-            }
-        } else {
-            leaderboard.push({ userId, username, score });
-        }
-
-        await kv.set('leaderboard', JSON.stringify(leaderboard));
-        res.json({ success: true, leaderboard });
-    } catch (err) {
-        console.error('Error saving score:', err);
-        res.status(500).send('Error saving score');
-    }
-});
-
-// === Start server ===
-const PORT = process.env.PORT || 3000;
+// Menjalankan server
 app.listen(PORT, () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
