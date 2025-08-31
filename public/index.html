@@ -601,9 +601,13 @@
         }
 
         async function submitScore() {
-            if (!loggedInUser) return;
+            if (!loggedInUser) {
+                console.error("User not logged in. Score not submitted.");
+                return;
+            }
+
             try {
-                await fetch('/api/leaderboard', {
+                const response = await fetch('/api/leaderboard', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -614,8 +618,16 @@
                         score: score
                     })
                 });
+
+                if (response.ok) {
+                    console.log('Skor berhasil disimpan!');
+                } else if (response.status === 401) {
+                    console.error('Gagal menyimpan skor: Unauthorized. Sesi login hilang.');
+                } else {
+                    console.error(`Gagal menyimpan skor. Status: ${response.status} ${response.statusText}`);
+                }
             } catch (error) {
-                console.error('Failed to submit score:', error);
+                console.error('Gagal mengirim skor:', error);
             }
         }
 
