@@ -52,11 +52,12 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 // ====================== LEADERBOARD ======================
 
-// Ambil leaderboard
+// GET leaderboard
 app.get('/api/leaderboard', async (req, res) => {
     try {
         let leaderboardData = await kv.get('leaderboard');
 
+        // Pastikan hasil parse JSON
         if (!leaderboardData) {
             leaderboardData = [];
         } else if (typeof leaderboardData === 'string') {
@@ -69,23 +70,32 @@ app.get('/api/leaderboard', async (req, res) => {
             console.warn('Leaderboard data corrupted, resetting.');
         }
 
-        // Urutkan score dari besar ke kecil
-        const sortedLeaderboard = leaderboardData.sort((a, b) => b.score - a.score);
+        // Urutkan dari skor tertinggi → terendah
+        let sortedLeaderboard = leaderboardData.sort((a, b) => b.score - a.score);
+
+        // Jika frontend butuh limit (misal ?limit=10)
+        const limit = parseInt(req.query.limit) || sortedLeaderboard.length;
+        sortedLeaderboard = sortedLeaderboard.slice(0, limit);
 
         res.json(sortedLeaderboard);
     } catch (error) {
-        console.error('Failed to fetch leaderboard:', error);
+        console.error('Failed to fetch leaderboard from KV:', error);
         res.status(500).send('Error fetching leaderboard');
     }
 });
 
-// Tambah/update skor
+// POST leaderboard
 app.post('/api/leaderboard', async (req, res) => {
+    // Jika ingin terbuka untuk semua user → hapus check ini
     if (!req.isAuthenticated()) {
         return res.status(401).send('Unauthorized');
     }
 
     const { userId, username, score } = req.body;
+
+    if (!userId || !username || typeof score !== 'number') {
+        return res.status(400).send('Invalid data');
+    }
 
     try {
         let currentLeaderboard = await kv.get('leaderboard');
@@ -118,7 +128,7 @@ app.post('/api/leaderboard', async (req, res) => {
 
         res.sendStatus(200);
     } catch (error) {
-        console.error('Failed to save score:', error);
+        console.error('Failed to save score to KV:', error);
         res.status(500).send('Error saving score');
     }
 });
