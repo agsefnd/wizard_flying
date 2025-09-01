@@ -126,7 +126,7 @@ app.get('/login', passport.authenticate('discord'));
 app.get('/auth/discord/callback', passport.authenticate('discord', {
     failureRedirect: '/'
 }), (req, res) => {
-    res.redirect('/');
+    res.redirect('/?loggedin=true');
 });
 
 app.get('/api/user', (req, res) => {
