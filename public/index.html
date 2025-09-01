@@ -306,7 +306,9 @@
             wizard.width = wizardWidth;
             wizard.height = wizardHeight;
             console.log("Image 'mage.png' loaded successfully.");
-            if (isBackgroundLoaded) checkLoginStatus();
+            if (isBackgroundLoaded) {
+                 // Hapus panggilan ini
+            }
         };
 
         mageImage.onerror = () => {
@@ -314,19 +316,25 @@
             isMageLoaded = false;
             wizard.width = 60;
             wizard.height = 60;
-            if (isBackgroundLoaded) checkLoginStatus();
+            if (isBackgroundLoaded) {
+                 // Hapus panggilan ini
+            }
         };
 
         backgroundImage.onload = () => {
             isBackgroundLoaded = true;
             console.log("Image 'island.png' loaded successfully.");
-            if (isMageLoaded) checkLoginStatus();
+            if (isMageLoaded) {
+                 // Hapus panggilan ini
+            }
         };
 
         backgroundImage.onerror = () => {
             console.error("Failed to load 'island.png'. Using a red-black gradient background.");
             isBackgroundLoaded = false;
-            if (isMageLoaded) checkLoginStatus();
+            if (isMageLoaded) {
+                 // Hapus panggilan ini
+            }
         };
 
         // ========== GAME OBJECTS ==========
@@ -694,10 +702,17 @@
         // ========== INITIALIZATION ==========
         document.addEventListener('DOMContentLoaded', () => {
             resizeCanvas();
-            // Tunda pemeriksaan status login selama 500ms
-            setTimeout(() => {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('authenticated') === 'true') {
+                // Langsung tampilkan layar game jika otentikasi berhasil
+                loginScreen.style.display = 'none';
+                startScreen.style.display = 'flex';
+                // Panggil checkLoginStatus() sekali untuk mendapatkan data user
                 checkLoginStatus(); 
-            }, 500); 
+            } else {
+                // Jalankan pemeriksaan status seperti biasa
+                checkLoginStatus();
+            }
             highScoreElement.textContent = highScore;
             animateStartScreen();
         });
