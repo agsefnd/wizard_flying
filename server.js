@@ -1,711 +1,148 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Flying Wizard - Game</title>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        }
+const express = require('express');
+const session = require('express-session');
+const passport = require('passport');
+const DiscordStrategy = require('passport-discord').Strategy;
+const axios = require('axios');
+const path = require('path');
+const { createClient } = require('@vercel/kv');
 
-        body {
-            background: #000;
-            min-height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            overflow: hidden;
-        }
+// Inisialisasi Klien Vercel KV dengan kredensial dari environment variables
+const kv = createClient({
+    url: process.env.KV_REST_API_URL,
+    token: process.env.KV_REST_API_TOKEN,
+});
 
-        .game-container {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            overflow: hidden;
-        }
+const app = express();
+const PORT = process.env.PORT || 3000;
 
-        canvas {
-            background: #1a1a1a;
-            display: block;
-            touch-action: none;
-            width: 100%;
-            height: 100%;
-            position: absolute;
-            top: 0;
-            left: 0;
-            z-index: 1;
-        }
+// Discord OAuth2 Scopes
+const scopes = ['identify'];
 
-        .ui-container {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            padding: 20px;
-            color: white;
-            display: flex;
-            justify-content: space-between;
-            z-index: 10;
-            text-shadow: 1px 1px 2px #000;
-        }
+// Konfigurasi Passport
+passport.serializeUser(function(user, done) {
+    done(null, user);
+});
+
+passport.deserializeUser(function(obj, done) {
+    done(null, obj);
+});
+
+passport.use(new DiscordStrategy({
+    clientID: process.env.DISCORD_CLIENT_ID,
+    clientSecret: process.env.DISCORD_CLIENT_SECRET,
+    callbackURL: process.env.REDIRECT_URI,
+    scope: scopes
+}, function(accessToken, refreshToken, profile, done) {
+    process.nextTick(function() {
+        return done(null, profile);
+    });
+}));
+
+// Middleware
+app.use(session({
+    secret: 'mysecret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { maxAge: 24 * 60 * 60 * 1000 } // Sesi berlaku selama 24 jam
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+app.use(express.json());
+
+// Melayani file statis dari direktori 'public'
+app.use(express.static(path.join(__dirname, 'public')));
+
+// Rute untuk mendapatkan leaderboard dari Vercel KV
+app.get('/api/leaderboard', async (req, res) => {
+    try {
+        let leaderboardData = await kv.get('leaderboard') || [];
         
-        .score-container {
-            background: rgba(0, 0, 0, 0.5);
-            padding: 10px 20px;
-            border-radius: 20px;
-            backdrop-filter: blur(5px);
+        // Memastikan data yang diambil dari KV adalah array yang valid
+        if (!Array.isArray(leaderboardData)) {
+            // Hapus kunci yang rusak dan gunakan array kosong
+            await kv.del('leaderboard');
+            leaderboardData = [];
+            console.warn('Leaderboard data in KV was not an array. Resetting and deleting the key.');
         }
 
-        .start-screen, .game-over-screen, .login-screen {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            z-index: 20;
-        }
-
-        .game-over-screen, .login-screen {
-            display: none;
-        }
-        
-        .leaderboard-container {
-            position: absolute;
-            right: 20px;
-            top: 100px;
-            width: 250px;
-            padding: 20px;
-            background: rgba(0, 0, 0, 0.6);
-            border-radius: 10px;
-            color: white;
-            z-index: 15;
-            backdrop-filter: blur(5px);
-            display: none;
-        }
-
-        .leaderboard-container h3 {
-            text-align: center;
-            margin-bottom: 10px;
-            color: #ffcc00;
-        }
-        
-        .leaderboard-container ol {
-            padding-left: 20px;
-        }
-
-        .leaderboard-container li {
-            padding: 5px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            justify-content: space-between;
-        }
-
-        .leaderboard-container li:last-child {
-            border-bottom: none;
-        }
-        
-        .user-info {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            background: rgba(0, 0, 0, 0.5);
-            padding: 10px 20px;
-            border-radius: 20px;
-            backdrop-filter: blur(5px);
-        }
-
-        h1 {
-            font-size: 3rem;
-            margin-bottom: 20px;
-            text-shadow: 0 0 10px #ff00ff, 0 0 20px #ff00ff;
-            color: #fff;
-        }
-
-        h2 {
-            font-size: 2rem;
-            margin-bottom: 30px;
-            color: #ffcc00;
-        }
-
-        button {
-            padding: 15px 30px;
-            font-size: 1.2rem;
-            background: linear-gradient(to right, #ff0080, #ff8c00);
-            color: white;
-            border: none;
-            border-radius: 50px;
-            cursor: pointer;
-            margin: 10px;
-            transition: all 0.3s ease;
-            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-        }
-
-        button:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
-            background: linear-gradient(to right, #ff0080, #ffcc00);
-        }
-        
-        .instructions {
-            max-width: 90%;
-            text-align: center;
-            margin: 20px 0;
-            line-height: 1.6;
-            font-size: 1rem;
-        }
-
-        .key {
-            display: inline-block;
-            padding: 2px 8px;
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 5px;
-            font-weight: bold;
-        }
-
-        #speed-up-text {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            font-size: 3rem;
-            color: #fff;
-            text-shadow: 0 0 10px #00f, 0 0 20px #00f;
-            animation: fadeOut 1s forwards;
-            display: none;
-            z-index: 30;
-        }
-
-        @keyframes fadeOut {
-            from {
-                opacity: 1;
-                transform: translate(-50%, -50%) scale(1);
-            }
-            to {
-                opacity: 0;
-                transform: translate(-50%, -50%) scale(1.5);
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="game-container">
-        <div class="ui-container">
-            <div class="score-container">
-                <h3>Score: <span id="score">0</span></h3>
-            </div>
-            <div class="score-container">
-                <h3>High Score: <span id="high-score">0</span></h3>
-            </div>
-            <div class="user-info" id="user-info">
-                <span>Not Logged In</span>
-            </div>
-        </div>
-        
-        <div class="leaderboard-container" id="leaderboard-container">
-            <h3>Leaderboard</h3>
-            <ol id="leaderboard-list"></ol>
-        </div>
-
-        <div id="speed-up-text">SPEED UP!</div>
-
-        <div class="login-screen" id="login-screen">
-            <h1>Flying Wizard</h1>
-            <p class="instructions">Login to save your score and compete on the leaderboard!</p>
-            <button id="login-button">Login with Discord</button>
-        </div>
-
-        <div class="start-screen" id="start-screen">
-            <h1>Flying Wizard</h1>
-            <div class="instructions">
-                <p>Fly the wizard past obstacles!</p>
-                <p>On Desktop: Use the button <span class="key">▲</span> and <span class="key">▼</span> (or <span class="key">W</span> and <span class="key">S</span>).</p>
-                <p>On Mobile: Touch <span class="key">top</span> screen to go up, and <span class="key">bottom</span> to go down.</p>
-            </div>
-            <button id="start-button">Start Game</button>
-        </div>
-
-        <div class="game-over-screen" id="game-over-screen">
-            <h2>Game Over!</h2>
-            <p class="instructions">Final Score: <span id="final-score">0</span></p>
-            <p class="instructions">High Score: <span id="final-high-score">0</span></p>
-            <button id="restart-button">Play Again</button>
-        </div>
-
-        <canvas id="game-canvas"></canvas>
-    </div>
-
-    <audio id="background-music" loop>
-        <source src="efek.mp3" type="audio/mpeg">
-        Your browser does not support the audio element.
-    </audio>
-
-    <script>
-        // ========== DOM ELEMENTS ==========
-        const canvas = document.getElementById('game-canvas');
-        const ctx = canvas.getContext('2d');
-        const loginScreen = document.getElementById('login-screen');
-        const startScreen = document.getElementById('start-screen');
-        const gameOverScreen = document.getElementById('game-over-screen');
-        const startButton = document.getElementById('start-button');
-        const restartButton = document.getElementById('restart-button');
-        const loginButton = document.getElementById('login-button');
-        const scoreElement = document.getElementById('score');
-        const highScoreElement = document.getElementById('high-score');
-        const finalScoreElement = document.getElementById('final-score');
-        const finalHighScoreElement = document.getElementById('final-high-score');
-        const speedUpText = document.getElementById('speed-up-text');
-        const backgroundMusic = document.getElementById('background-music');
-        const userInfoElement = document.getElementById('user-info');
-        const leaderboardContainer = document.getElementById('leaderboard-container');
-        const leaderboardList = document.getElementById('leaderboard-list');
-
-        // ========== GAME VARIABLES ==========
-        let gameRunning = false;
-        let score = 0;
-        let highScore = localStorage.getItem('highScore') || 0;
-        let frameCount = 0;
-        const wallDistance = 300;
-        let nextSpeedIncrease = 10;
-        let loggedInUser = null;
-
-        // Controls
-        let upPressed = false;
-        let downPressed = false;
-
-        // Character & Background Images
-        const mageImage = new Image();
-        mageImage.src = 'mage.png';
-        let isMageLoaded = false;
-        let wizardWidth = 50;
-        let wizardHeight = 50;
-
-        const backgroundImage = new Image();
-        backgroundImage.src = 'island.png';
-        let isBackgroundLoaded = false;
-        let backgroundX = 0;
-
-        // ========== IMAGE LOADING ==========
-        mageImage.onload = () => {
-            isMageLoaded = true;
-            const ratio = mageImage.width / mageImage.height;
-            wizardWidth = 100;
-            wizardHeight = wizardWidth / ratio;
-            wizard.width = wizardWidth;
-            wizard.height = wizardHeight;
-            console.log("Image 'mage.png' loaded successfully.");
-        };
-
-        mageImage.onerror = () => {
-            console.error("Failed to load 'mage.png'. Using a placeholder.");
-            isMageLoaded = false;
-            wizard.width = 60;
-            wizard.height = 60;
-        };
-
-        backgroundImage.onload = () => {
-            isBackgroundLoaded = true;
-            console.log("Image 'island.png' loaded successfully.");
-        };
-
-        backgroundImage.onerror = () => {
-            console.error("Failed to load 'island.png'. Using a red-black gradient background.");
-            isBackgroundLoaded = false;
-        };
-
-        // ========== GAME OBJECTS ==========
-        // Wizard character
-        const wizard = {
-            x: 100,
-            y: canvas.height / 2,
-            width: wizardWidth,
-            height: wizardHeight,
-            speedY: 7,
-
-            draw() {
-                const hoverOffset = Math.sin(frameCount * 0.1) * 5;
-                if (isMageLoaded) {
-                    ctx.drawImage(mageImage, this.x - this.width / 2, this.y - this.height / 2 + hoverOffset, this.width, this.height);
-                } else {
-                    ctx.fillStyle = '#9c27b0';
-                    ctx.beginPath();
-                    ctx.arc(this.x, this.y + hoverOffset, this.width / 2, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = '#4a148c';
-                    ctx.beginPath();
-                    ctx.moveTo(this.x - this.width / 2, this.y + hoverOffset - 15);
-                    ctx.lineTo(this.x + this.width / 2, this.y + hoverOffset - 15);
-                    ctx.lineTo(this.x, this.y + hoverOffset - 40);
-                    ctx.closePath();
-                    ctx.fill();
-                }
-
-                ctx.save();
-                ctx.filter = 'blur(8px)';
-                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-                ctx.beginPath();
-                ctx.arc(this.x, this.y + hoverOffset, this.width * 0.7, 0, Math.PI * 2);
-                ctx.fill();
-                ctx.restore();
-            },
-
-            update() {
-                if (upPressed) this.y -= this.speedY;
-                if (downPressed) this.y += this.speedY;
-
-                if (this.y < this.height / 2) this.y = this.height / 2;
-                if (this.y > canvas.height - this.height / 2) this.y = canvas.height - this.height / 2;
-            }
-        };
-
-        // Walls array
-        let walls = [];
-        let wallSpeed = 4;
-
-        // Wall class
-        class Wall {
-            constructor() {
-                this.width = 30;
-                this.x = canvas.width;
-                this.topHeight = Math.random() * (canvas.height / 2) + 50;
-                this.gap = 250; 
-                this.color = '#555';
-                this.passed = false;
-
-                this.initialY = this.topHeight;
-                this.offsetY = Math.random() * 100 + 50;
-                this.speedY = (Math.random() - 0.5) * 2;
-            }
-
-            draw() {
-                ctx.fillStyle = this.color;
-                ctx.fillRect(this.x, 0, this.width, this.topHeight);
-                const bottomY = this.topHeight + this.gap;
-                ctx.fillRect(this.x, bottomY, this.width, canvas.height - bottomY);
-
-                ctx.fillStyle = '#333';
-                for (let i = 0; i < this.topHeight; i += 15) {
-                    ctx.fillRect(this.x, i, this.width, 5);
-                }
-                for (let i = bottomY; i < canvas.height; i += 15) {
-                    ctx.fillRect(this.x, i, this.width, 5);
-                }
-            }
-
-            update() {
-                this.x -= wallSpeed;
-                this.topHeight = this.initialY + Math.sin(frameCount * this.speedY / 50) * this.offsetY;
-
-                if (!this.passed && this.x + this.width < wizard.x) {
-                    score++;
-                    scoreElement.textContent = score;
-                    this.passed = true;
-                }
-
-                if (wizard.x + wizard.width / 2 > this.x && wizard.x - wizard.width / 2 < this.x + this.width) {
-                    if (wizard.y - wizard.height / 2 < this.topHeight || wizard.y + wizard.height / 2 > this.topHeight + this.gap) {
-                        gameOver();
-                    }
-                }
-            }
-        }
-
-        // ========== GAME FUNCTIONS ==========
-        function gameLoop() {
-            if (!gameRunning) return;
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            drawBackground();
-            wizard.update();
-            wizard.draw();
-
-            // Increase speed every 10 points
-            if (score >= nextSpeedIncrease) {
-                wizard.speedY += 0.3;
-                wallSpeed += 0.3;
-                nextSpeedIncrease += 10;
-
-                speedUpText.style.display = 'block';
-                setTimeout(() => {
-                    speedUpText.style.display = 'none';
-                }, 1000);
-            }
-
-            // Add new walls
-            const lastWall = walls[walls.length - 1];
-            if (!lastWall || lastWall.x < canvas.width - wallDistance) {
-                walls.push(new Wall());
-            }
-
-            // Update and draw walls
-            for (let i = walls.length - 1; i >= 0; i--) {
-                walls[i].update();
-                walls[i].draw();
-
-                if (walls[i].x + walls[i].width < 0) {
-                    walls.splice(i, 1);
-                }
-            }
-
-            frameCount++;
-            requestAnimationFrame(gameLoop);
-        }
-
-        function drawBackground() {
-            if (isBackgroundLoaded) {
-                const ratio = backgroundImage.width / backgroundImage.height;
-                const imgHeight = canvas.height;
-                const imgWidth = imgHeight * ratio;
-
-                backgroundX -= wallSpeed * 0.5;
-                ctx.drawImage(backgroundImage, backgroundX, 0, imgWidth, imgHeight);
-                ctx.drawImage(backgroundImage, backgroundX + imgWidth, 0, imgWidth, imgHeight);
-
-                if (backgroundX <= -imgWidth) backgroundX = 0;
-
-                ctx.fillStyle = 'rgba(0, 0, 0, 0.4)';
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-            } else {
-                const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
-                gradient.addColorStop(0, '#8B0000');
-                gradient.addColorStop(1, '#000000');
-                ctx.fillStyle = gradient;
-                ctx.fillRect(0, 0, canvas.width, canvas.height);
-            }
-        }
-
-        function startGame() {
-            gameRunning = true;
-            score = 0;
-            scoreElement.textContent = score;
-            walls = [];
-            frameCount = 0;
-            wizard.speedY = 7;
-            wallSpeed = 4;
-            nextSpeedIncrease = 10;
-            backgroundX = 0;
-            wizard.y = canvas.height / 2;
-
-            startScreen.style.display = 'none';
-            gameOverScreen.style.display = 'none';
-            speedUpText.style.display = 'none';
-            leaderboardContainer.style.display = 'none';
-
-            backgroundMusic.play().catch(e => console.log("Autoplay was prevented."));
-            gameLoop();
-        }
-
-        function gameOver() {
-            gameRunning = false;
-            backgroundMusic.currentTime = 0;
-            backgroundMusic.pause();
-
-            if (score > highScore) {
-                highScore = score;
-                localStorage.setItem('highScore', highScore);
-                highScoreElement.textContent = highScore;
-            }
-
-            finalScoreElement.textContent = score;
-            finalHighScoreElement.textContent = highScore;
+        // Urutkan berdasarkan skor tertinggi dan ambil 10 teratas
+        const sortedLeaderboard = leaderboardData
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 10);
             
-            // Submit score to backend if logged in
-            if (loggedInUser) submitScore();
+        res.json(sortedLeaderboard);
+    } catch (error) {
+        console.error('Failed to fetch leaderboard from KV:', error);
+        res.status(500).send('Error fetching leaderboard');
+    }
+});
 
-            gameOverScreen.style.display = 'flex';
-            setTimeout(fetchAndDisplayLeaderboard, 1000);
-        }
+// Rute untuk mengirimkan skor ke Vercel KV
+app.post('/api/leaderboard', async (req, res) => {
+    if (!req.isAuthenticated()) {
+        return res.status(401).send('Unauthorized');
+    }
 
-        // ========== AUTHENTICATION & LEADERBOARD ==========
-        async function checkLoginStatus() {
-            try {
-                const response = await fetch('/api/user');
-                const data = await response.json();
-                
-                if (data.loggedIn) {
-                    loggedInUser = data.user;
-                    userInfoElement.innerHTML = `<span>Logged in as: <b>${loggedInUser.username}</b></span>`;
-                    loginScreen.style.display = 'none';
-                    startScreen.style.display = 'flex';
-                } else {
-                    loggedInUser = null;
-                    loginScreen.style.display = 'flex';
-                    startScreen.style.display = 'none';
-                }
-                
-                fetchAndDisplayLeaderboard();
-            } catch (error) {
-                console.error('Failed to check login status:', error);
-                loggedInUser = null;
-                loginScreen.style.display = 'flex';
-                startScreen.style.display = 'none';
-                fetchAndDisplayLeaderboard();
-            }
-        }
+    const { userId, username, score } = req.body;
 
-        async function submitScore() {
-            if (!loggedInUser) {
-                console.error("User not logged in. Score not submitted.");
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/leaderboard', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        userId: loggedInUser.id,
-                        username: loggedInUser.username,
-                        score: score
-                    })
-                });
-
-                const data = await response.json();
-                
-                if (response.ok) {
-                    console.log('Score saved successfully!');
-                    fetchAndDisplayLeaderboard();
-                } else if (response.status === 401) {
-                    console.error('Failed to save score: Unauthorized. Login session may have expired.');
-                    alert('Your session has expired. Please login again to save your score.');
-                    window.location.href = '/login';
-                } else {
-                    console.error(`Failed to save score. Status: ${response.status} ${response.statusText}`, data);
-                }
-            } catch (error) {
-                console.error('Failed to send score:', error);
-            }
-        }
-
-        async function fetchAndDisplayLeaderboard() {
-            try {
-                const response = await fetch('/api/leaderboard');
-                const leaderboardData = await response.json();
-                leaderboardList.innerHTML = ''; // Clear existing list
-                
-                leaderboardData.forEach((entry, index) => {
-                    const li = document.createElement('li');
-                    li.innerHTML = `<b>${index + 1}.</b> ${entry.username} - <b>${entry.score}</b>`;
-                    leaderboardList.appendChild(li);
-                });
-                
-                leaderboardContainer.style.display = 'block';
-            } catch (error) {
-                console.error('Failed to fetch leaderboard:', error);
-                leaderboardContainer.style.display = 'none';
-            }
-        }
-
-        // ========== EVENT LISTENERS ==========
-        loginButton.addEventListener('click', () => {
-            window.location.href = '/login';
-        });
+    try {
+        let currentLeaderboard = await kv.get('leaderboard') || [];
         
-        startButton.addEventListener('click', () => {
-            if (loggedInUser) {
-                startGame();
-            } else {
-                alert('Please log in with Discord to start the game.');
-                window.location.href = '/login';
-            }
-        });
-        restartButton.addEventListener('click', startGame);
+        // Memastikan data yang diambil adalah array yang valid
+        if (!Array.isArray(currentLeaderboard)) {
+            // Hapus kunci yang rusak dan gunakan array kosong
+            await kv.del('leaderboard');
+            currentLeaderboard = [];
+            console.warn('Leaderboard data in KV was not an array. Resetting and deleting the key.');
+        }
 
-        document.addEventListener('keydown', (e) => {
-            if (e.code === 'ArrowUp' || e.key === 'w') upPressed = true;
-            if (e.code === 'ArrowDown' || e.key === 's') downPressed = true;
-            
-            if (!gameRunning && (startScreen.style.display !== 'none' || loginScreen.style.display !== 'none')) {
-                if (loggedInUser) {
-                    startGame();
-                } else {
-                    window.location.href = '/login';
-                }
-            }
-        });
+        // Cari entri yang sudah ada untuk user ini
+        const existingEntryIndex = currentLeaderboard.findIndex(entry => entry.userId === userId);
 
-        document.addEventListener('keyup', (e) => {
-            if (e.code === 'ArrowUp' || e.key === 'w') upPressed = false;
-            if (e.code === 'ArrowDown' || e.key === 's') downPressed = false;
-        });
-
-        canvas.addEventListener('touchstart', (e) => {
-            e.preventDefault(); 
-            const touchY = e.touches[0].clientY - canvas.getBoundingClientRect().top;
-            
-            if (touchY < canvas.height / 2) {
-                upPressed = true;
-                downPressed = false;
-            } else {
-                downPressed = true;
-                upPressed = false;
+        if (existingEntryIndex !== -1) {
+            // Jika user sudah ada, update skor hanya jika lebih tinggi
+            if (score > currentLeaderboard[existingEntryIndex].score) {
+                currentLeaderboard[existingEntryIndex].score = score;
+                currentLeaderboard[existingEntryIndex].username = username; // Update username jika berubah
             }
-
-            if (!gameRunning && (startScreen.style.display !== 'none' || loginScreen.style.display !== 'none')) {
-                if (loggedInUser) {
-                    startGame();
-                } else {
-                    window.location.href = '/login';
-                }
-            }
-        }, { passive: false });
-        
-        canvas.addEventListener('touchend', () => {
-            upPressed = false;
-            downPressed = false;
-        });
-
-        function animateStartScreen() {
-            if (!gameRunning && startScreen.style.display !== 'none' && loginScreen.style.display === 'none') {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                drawBackground();
-                wizard.draw();
-                frameCount++;
-                requestAnimationFrame(animateStartScreen);
-            }
+        } else {
+            // Jika user baru, tambahkan ke leaderboard
+            currentLeaderboard.push({ userId, username, score });
         }
         
-        function resizeCanvas() {
-            const container = document.querySelector('.game-container');
-            canvas.width = container.clientWidth;
-            canvas.height = container.clientHeight;
-            wizard.x = canvas.width / 4;
-            wizard.y = canvas.height / 2;
-        }
+        // Simpan kembali ke KV
+        await kv.set('leaderboard', currentLeaderboard);
+        
+        res.sendStatus(200);
+    } catch (error) {
+        console.error('Failed to save score to KV:', error);
+        res.status(500).send('Error saving score');
+    }
+});
 
-        // ========== INITIALIZATION ==========
-        document.addEventListener('DOMContentLoaded', () => {
-            resizeCanvas();
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('authenticated') === 'true') {
-                // Langsung tampilkan layar game jika otentikasi berhasil
-                loginScreen.style.display = 'none';
-                startScreen.style.display = 'flex';
-                // Panggil checkLoginStatus() sekali untuk mendapatkan data user
-                checkLoginStatus(); 
-            } else {
-                // Jalankan pemeriksaan status seperti biasa
-                checkLoginStatus();
-            }
-            highScoreElement.textContent = highScore;
-            animateStartScreen();
-        });
+// Rute login dan autentikasi
+app.get('/login', passport.authenticate('discord'));
 
-        window.addEventListener('resize', resizeCanvas);
-    </script>
-</body>
-</html>
+app.get('/auth/discord/callback', passport.authenticate('discord', {
+    failureRedirect: '/'
+}), (req, res) => {
+    res.redirect('/?authenticated=true');
+});
+
+app.get('/api/user', (req, res) => {
+    if (req.isAuthenticated()) {
+        res.json({ loggedIn: true, user: req.user });
+    } else {
+        res.json({ loggedIn: false });
+    }
+});
+
+// Melayani halaman utama
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Menjalankan server
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
