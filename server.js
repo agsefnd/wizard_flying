@@ -42,7 +42,8 @@ passport.use(new DiscordStrategy({
 app.use(session({
     secret: 'mysecret',
     resave: false,
-    saveUninitialized: false
+    saveUninitialized: false,
+    cookie: { maxAge: 24 * 60 * 60 * 1000 }
 }));
 app.use(passport.initialize());
 app.use(passport.session());
