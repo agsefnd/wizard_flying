@@ -68,7 +68,7 @@ app.get('/api/leaderboard', async (req, res) => {
         // Urutkan berdasarkan skor tertinggi dan ambil 10 teratas
         const sortedLeaderboard = leaderboardData
             .sort((a, b) => b.score - a.score)
-            .slice(0, 10);
+            .slice(0, 50);
             
         res.json(sortedLeaderboard);
     } catch (error) {
