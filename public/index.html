@@ -306,6 +306,7 @@
             wizard.width = wizardWidth;
             wizard.height = wizardHeight;
             console.log("Image 'mage.png' loaded successfully.");
+            if (isBackgroundLoaded) checkLoginStatus();
         };
 
         mageImage.onerror = () => {
@@ -313,16 +314,19 @@
             isMageLoaded = false;
             wizard.width = 60;
             wizard.height = 60;
+            if (isBackgroundLoaded) checkLoginStatus();
         };
 
         backgroundImage.onload = () => {
             isBackgroundLoaded = true;
             console.log("Image 'island.png' loaded successfully.");
+            if (isMageLoaded) checkLoginStatus();
         };
 
         backgroundImage.onerror = () => {
             console.error("Failed to load 'island.png'. Using a red-black gradient background.");
             isBackgroundLoaded = false;
+            if (isMageLoaded) checkLoginStatus();
         };
 
         // ========== GAME OBJECTS ==========
@@ -615,14 +619,7 @@
             window.location.href = '/login';
         });
         
-        startButton.addEventListener('click', () => {
-            if (loggedInUser) {
-                startGame();
-            } else {
-                alert('Please log in with Discord to start the game.');
-                window.location.href = '/login';
-            }
-        });
+        startButton.addEventListener('click', startGame);
         restartButton.addEventListener('click', startGame);
 
         document.addEventListener('keydown', (e) => {
@@ -630,11 +627,8 @@
             if (e.code === 'ArrowDown' || e.key === 's') downPressed = true;
             
             if (!gameRunning && (startScreen.style.display !== 'none' || loginScreen.style.display !== 'none')) {
-                if (loggedInUser) {
-                    startGame();
-                } else {
-                    window.location.href = '/login';
-                }
+                if (loggedInUser) startGame();
+                else window.location.href = '/login';
             }
         });
 
@@ -656,11 +650,8 @@
             }
 
             if (!gameRunning && (startScreen.style.display !== 'none' || loginScreen.style.display !== 'none')) {
-                if (loggedInUser) {
-                    startGame();
-                } else {
-                    window.location.href = '/login';
-                }
+                if (loggedInUser) startGame();
+                else window.location.href = '/login';
             }
         }, { passive: false });
         
@@ -690,14 +681,7 @@
         // ========== INITIALIZATION ==========
         document.addEventListener('DOMContentLoaded', () => {
             resizeCanvas();
-            const urlParams = new URLSearchParams(window.location.search);
-            if (urlParams.get('authenticated') === 'true') {
-                loginScreen.style.display = 'none';
-                startScreen.style.display = 'flex';
-                checkLoginStatus(); 
-            } else {
-                checkLoginStatus();
-            }
+            checkLoginStatus();
             highScoreElement.textContent = highScore;
             animateStartScreen();
         });
