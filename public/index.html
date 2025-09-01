@@ -694,7 +694,10 @@
         // ========== INITIALIZATION ==========
         document.addEventListener('DOMContentLoaded', () => {
             resizeCanvas();
-            checkLoginStatus();
+            // Tunda pemeriksaan status login selama 500ms
+            setTimeout(() => {
+                checkLoginStatus(); 
+            }, 500); 
             highScoreElement.textContent = highScore;
             animateStartScreen();
         });
