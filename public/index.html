@@ -692,13 +692,10 @@
             resizeCanvas();
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('authenticated') === 'true') {
-                // Langsung tampilkan layar game jika otentikasi berhasil
                 loginScreen.style.display = 'none';
                 startScreen.style.display = 'flex';
-                // Panggil checkLoginStatus() sekali untuk mendapatkan data user
                 checkLoginStatus(); 
             } else {
-                // Jalankan pemeriksaan status seperti biasa
                 checkLoginStatus();
             }
             highScoreElement.textContent = highScore;
